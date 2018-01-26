@@ -484,6 +484,7 @@ func (d *DockerDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstru
 			d.logger.Printf("[INFO] driver.docker: failed to initialize client: %s", err)
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
+		resp.RemoveAttribute(dockerDriverAttr)
 		return nil
 	}
 
@@ -496,6 +497,7 @@ func (d *DockerDriver) Fingerprint(req *cstructs.FingerprintRequest, resp *cstru
 			d.logger.Printf("[DEBUG] driver.docker: could not connect to docker daemon at %s: %s", client.Endpoint(), err)
 		}
 		d.fingerprintSuccess = helper.BoolToPtr(false)
+		resp.RemoveAttribute(dockerDriverAttr)
 		return nil
 	}
 
