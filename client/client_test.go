@@ -24,7 +24,6 @@ import (
 	"github.com/hashicorp/nomad/nomad/structs"
 	nconfig "github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/nomad/testutil"
-	"github.com/mitchellh/hashstructure"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -221,38 +220,6 @@ func TestClient_Fingerprint(t *testing.T) {
 	require.NotEqual("", node.Attributes["kernel.name"])
 	require.NotEqual("", node.Attributes["cpu.arch"])
 	require.NotEqual("", node.Attributes["driver.mock_driver"])
-}
-
-func TestClient_HasNodeChanged(t *testing.T) {
-	t.Parallel()
-	c := testClient(t, nil)
-	defer c.Shutdown()
-
-	node := c.config.Node
-	attrHash, err := hashstructure.Hash(node.Attributes, nil)
-	if err != nil {
-		c.logger.Printf("[DEBUG] client: unable to calculate node attributes hash: %v", err)
-	}
-	// Calculate node meta map hash
-	metaHash, err := hashstructure.Hash(node.Meta, nil)
-	if err != nil {
-		c.logger.Printf("[DEBUG] client: unable to calculate node meta hash: %v", err)
-	}
-	if changed, _, _ := c.hasNodeChanged(attrHash, metaHash); changed {
-		t.Fatalf("Unexpected hash change.")
-	}
-
-	// Change node attribute
-	node.Attributes["arch"] = "xyz_86"
-	if changed, newAttrHash, _ := c.hasNodeChanged(attrHash, metaHash); !changed {
-		t.Fatalf("Expected hash change in attributes: %d vs %d", attrHash, newAttrHash)
-	}
-
-	// Change node meta map
-	node.Meta["foo"] = "bar"
-	if changed, _, newMetaHash := c.hasNodeChanged(attrHash, metaHash); !changed {
-		t.Fatalf("Expected hash change in meta map: %d vs %d", metaHash, newMetaHash)
-	}
 }
 
 func TestClient_Fingerprint_Periodic(t *testing.T) {
