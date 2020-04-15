@@ -153,6 +153,10 @@ type BinPackIterator struct {
 	priority  int
 	jobId     *structs.NamespacedID
 	taskGroup *structs.TaskGroup
+
+	// Custom scoring function should return a normalized score between 0
+	// and 1.
+	scoreFunc func(node *structs.Node, utilized *structs.ComparableResources) (float64, error)
 }
 
 // NewBinPackIterator returns a BinPackIterator which tries to fit tasks
@@ -436,10 +440,28 @@ OUTER:
 		}
 
 		// Score the fit normally otherwise
-		fitness := structs.ScoreFit(option.Node, util)
-		normalizedFit := fitness / binPackingMaxFitScore
-		option.Scores = append(option.Scores, normalizedFit)
-		iter.ctx.Metrics().ScoreNode(option.Node, "binpack", normalizedFit)
+		if iter.scoreFunc == nil {
+			fitness := structs.ScoreFit(option.Node, util)
+			normalizedFit := fitness / binPackingMaxFitScore
+			option.Scores = append(option.Scores, normalizedFit)
+			iter.ctx.Metrics().ScoreNode(option.Node, "binpack", normalizedFit)
+		} else {
+			fitness, err := iter.scoreFunc(option.Node, util)
+			if err != nil {
+				iter.ctx.Logger().Named("binpack").Debug("unexpected error custom scoring error", "error", err)
+				continue
+			}
+			if fitness > 1 {
+				iter.ctx.Logger().Named("binpack").Debug("custom scoring func scored >1.0; clamping to 1.0", "fitness", fitness)
+				fitness = 1
+			} else if fitness < 0 {
+				iter.ctx.Logger().Named("binpack").Debug("custom scoring func scored <0; clamping to 0", "fitness", fitness)
+				fitness = 0
+			}
+
+			option.Scores = append(option.Scores, fitness)
+			iter.ctx.Metrics().ScoreNode(option.Node, "binpack", fitness)
+		}
 
 		// Score the device affinity
 		if totalDeviceAffinityWeight != 0 {

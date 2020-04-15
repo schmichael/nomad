@@ -181,8 +181,10 @@ func ScoreFit(node *Node, util *ComparableResources) float64 {
 	// Bound the score, just in case
 	// If the score is over 18, that means we've overfit the node.
 	if score > 18.0 {
+		fmt.Println(node.Name, "---> overfit:  ", score)
 		score = 18.0
 	} else if score < 0 {
+		fmt.Println(node.Name, "---> underfit: ", score)
 		score = 0
 	}
 	return score

@@ -1,11 +1,13 @@
 package scheduler
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/nomad/helper/uuid"
 	"github.com/hashicorp/nomad/nomad/mock"
 	"github.com/hashicorp/nomad/nomad/structs"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,6 +25,135 @@ func TestFeasibleRankIterator(t *testing.T) {
 	if len(out) != len(nodes) {
 		t.Fatalf("bad: %v", out)
 	}
+}
+
+func TestBinPackIterator_NoExistingAlloc2(t *testing.T) {
+	_, ctx := testContext(t)
+	nodes := []*RankedNode{
+		{
+			Node: &structs.Node{
+				Name: "-no-reserve-",
+				// Barely best fit
+				NodeResources: &structs.NodeResources{
+					Cpu: structs.NodeCpuResources{
+						CpuShares: 1100,
+					},
+					Memory: structs.NodeMemoryResources{
+						MemoryMB: 1100,
+					},
+				},
+				ReservedResources: &structs.NodeReservedResources{
+					Cpu: structs.NodeReservedCpuResources{
+						CpuShares: 0,
+					},
+					Memory: structs.NodeReservedMemoryResources{
+						MemoryMB: 0,
+					},
+				},
+			},
+		},
+		{
+			Node: &structs.Node{
+				Name: "high-reserve",
+				// >50% fit
+				NodeResources: &structs.NodeResources{
+					Cpu: structs.NodeCpuResources{
+						CpuShares: 4000,
+					},
+					Memory: structs.NodeMemoryResources{
+						MemoryMB: 4000,
+					},
+				},
+				ReservedResources: &structs.NodeReservedResources{
+					Cpu: structs.NodeReservedCpuResources{
+						CpuShares: 2100,
+					},
+					Memory: structs.NodeReservedMemoryResources{
+						MemoryMB: 2100,
+					},
+				},
+			},
+		},
+		{
+			Node: &structs.Node{
+				Name: "-low-reserve",
+				// 50% fit
+				NodeResources: &structs.NodeResources{
+					Cpu: structs.NodeCpuResources{
+						CpuShares: 4000,
+					},
+					Memory: structs.NodeMemoryResources{
+						MemoryMB: 4000,
+					},
+				},
+				ReservedResources: &structs.NodeReservedResources{
+					Cpu: structs.NodeReservedCpuResources{
+						CpuShares: 1000,
+					},
+					Memory: structs.NodeReservedMemoryResources{
+						MemoryMB: 1000,
+					},
+				},
+			},
+		},
+		{
+			Node: &structs.Node{
+				Name: "overloaded",
+				// Overloaded
+				NodeResources: &structs.NodeResources{
+					Cpu: structs.NodeCpuResources{
+						CpuShares: 1000,
+					},
+					Memory: structs.NodeMemoryResources{
+						MemoryMB: 1000,
+					},
+				},
+				ReservedResources: &structs.NodeReservedResources{
+					Cpu: structs.NodeReservedCpuResources{
+						CpuShares: 500,
+					},
+					Memory: structs.NodeReservedMemoryResources{
+						MemoryMB: 500,
+					},
+				},
+			},
+		},
+	}
+	static := NewStaticRankIterator(ctx, nodes)
+
+	taskGroup := &structs.TaskGroup{
+		EphemeralDisk: &structs.EphemeralDisk{},
+		Tasks: []*structs.Task{
+			{
+				Name: "web",
+				Resources: &structs.Resources{
+					CPU:      1000,
+					MemoryMB: 1000,
+				},
+			},
+		},
+	}
+	binp := NewBinPackIterator(ctx, static, false, 0)
+	binp.SetTaskGroup(taskGroup)
+
+	scoreNorm := NewScoreNormalizationIterator(ctx, binp)
+
+	out := collectRanked(scoreNorm)
+	//require.Len(t, out, 2)
+	assert.Equal(t, nodes[0], out[0])
+	assert.Equal(t, nodes[1], out[1])
+	for i := range out {
+		fmt.Println(i, out[i].Node.Name, out[i].FinalScore)
+	}
+
+	/*
+		if out[0].FinalScore != 1.0 {
+			t.Fatalf("Bad Score: %v", out[0].FinalScore)
+		}
+		if out[1].FinalScore < 0.75 || out[1].FinalScore > 0.95 {
+			t.Fatalf("Bad Score: %v", out[1].FinalScore)
+		}
+	*/
 }
 
 func TestBinPackIterator_NoExistingAlloc(t *testing.T) {
