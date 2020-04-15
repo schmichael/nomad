@@ -119,6 +119,7 @@ func AllocsFit(node *Node, allocs []*Allocation, netIdx *NetworkIndex, checkDevi
 
 	// Check that the node resources are a super set of those
 	// that are being allocated
+	nodesRes := res - reserved
 	if superset, dimension := node.ComparableResources().Superset(used); !superset {
 		return false, dimension, used, nil
 	}
@@ -166,8 +167,8 @@ func ScoreFit(node *Node, util *ComparableResources) float64 {
 	}
 
 	// Compute the free percentage
-	freePctCpu := 1 - (float64(util.Flattened.Cpu.CpuShares) / nodeCpu)
-	freePctRam := 1 - (float64(util.Flattened.Memory.MemoryMB) / nodeMem)
+	freePctCpu := 1 - (float64(util.Flattened.Cpu.CpuShares-reserved.Flattened.Cpu.CpuShares) / nodeCpu)
+	freePctRam := 1 - (float64(util.Flattened.Memory.MemoryMB-reserved.Flattened.Memory.MemoryMB) / nodeMem)
 
 	// Total will be "maximized" the smaller the value is.
 	// At 100% utilization, the total is 2, while at 0% util it is 20.
