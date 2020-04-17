@@ -148,7 +148,7 @@ func (iter *StaticRankIterator) Reset() {
 // ScoreFunc is given the available resources on a feasible node and the
 // resources needed to place allocations. The ScoreFunc must return a fitness
 // score between 0 and 1 for placing the allocations on the node, or an error.
-type ScoreFunc func(avail, used *structs.ComparableResources) (float64, error)
+type ScoreFunc func(node *structs.Node, avail, used *structs.ComparableResources) (float64, error)
 
 // BinPackIterator is a RankIterator that scores potential options
 // based on a bin-packing algorithm.
@@ -179,26 +179,24 @@ func NewBinPackIterator(ctx Context, source RankIterator, evict bool, priority i
 func (iter *BinPackIterator) SetJob(job *structs.Job) {
 	iter.priority = job.Priority
 	iter.jobId = job.NamespacedID()
-}
-
-func (iter *BinPackIterator) SetTaskGroup(taskGroup *structs.TaskGroup) {
-	iter.taskGroup = taskGroup
 
 	//XXX(schmichael) setting this from the task group is likely to produce
 	//incoherent scheduling results but seems like a fun hack to try
-	if len(taskGroup.ScoreFunc) == 0 {
+	if len(job.ScoreFunc) == 0 {
 		iter.scoreFunc = nil
 	} else {
 		// parse the js, log and leave nil on errors as it should have
 		// been parsed and validated upstream
-		p, err := goja.Compile("score_func.js", taskGroup.ScoreFunc, true)
+		p, err := goja.Compile("score_func.js", job.ScoreFunc, true)
 		if err != nil {
 			iter.ctx.Logger().Named("binpack").Error("error compiling custom score function; using default scoring",
-				"score_func", taskGroup.ScoreFunc, "error", err)
+				"score_func", job.ScoreFunc, "error", err)
 			return
 		}
 		rt := goja.New()
-		iter.scoreFunc = func(avail, used *structs.ComparableResources) (float64, error) {
+		iter.scoreFunc = func(node *structs.Node, avail, used *structs.ComparableResources) (float64, error) {
+			logger := iter.ctx.Logger().Named("binpack").With("job", job.Name).With("node", node.Name)
+			rt.Set("node", node)
 			rt.Set("avail", avail)
 			rt.Set("used", used)
 			//FIXME(schmichael) call rt.Interrupt in 100ms
@@ -208,17 +206,21 @@ func (iter *BinPackIterator) SetTaskGroup(taskGroup *structs.TaskGroup) {
 			}
 			fv := v.ToFloat()
 			if fv < 0 {
-				iter.ctx.Logger().Named("binpack").Warn("custom score func return invalid score <0", "group", taskGroup.Name, "score", fv)
+				logger.Warn("custom score func return invalid score <0", "score", fv)
 				return 0, nil
 			} else if fv > 1 {
-				iter.ctx.Logger().Named("binpack").Warn("custom score func return invalid score >1", "group", taskGroup.Name, "score", fv)
+				logger.Warn("custom score func return invalid score >1", "score", fv)
 				return 1, nil
 			} else {
-				iter.ctx.Logger().Named("binpack").Debug("custom score func result", "group", taskGroup.Name, "score", fv)
+				logger.Debug("custom score func result", "score", fv)
 			}
 			return fv, nil
 		}
 	}
+}
+
+func (iter *BinPackIterator) SetTaskGroup(taskGroup *structs.TaskGroup) {
+	iter.taskGroup = taskGroup
 }
 
 func (iter *BinPackIterator) Next() *RankedNode {
@@ -491,7 +493,7 @@ OUTER:
 			reserved := option.Node.ComparableReservedResources()
 			available := option.Node.ComparableResources()
 			available.Subtract(reserved)
-			fitness, err := iter.scoreFunc(available, util)
+			fitness, err := iter.scoreFunc(option.Node, available, util)
 			if err != nil {
 				iter.ctx.Logger().Named("binpack").Debug("unexpected error using custom scoring algorithm",
 					"error", err)

@@ -3639,6 +3639,9 @@ type Job struct {
 	CreateIndex    uint64
 	ModifyIndex    uint64
 	JobModifyIndex uint64
+
+	//XXX(schmichael) ScoreFunc
+	ScoreFunc string
 }
 
 // NamespacedID returns the namespaced id useful for logging
@@ -3832,6 +3835,17 @@ func (j *Job) Validate() error {
 
 		if err := j.ParameterizedJob.Validate(); err != nil {
 			mErr.Errors = append(mErr.Errors, err)
+		}
+	}
+
+	//XXX(schmichael) validate the score function is at least valid
+	//javascript. Since it has no side-effects we could probably run it
+	//with dummy data to assert its safe 🤷
+	if len(j.ScoreFunc) != 0 {
+		_, err := goja.Compile("score_func.js", j.ScoreFunc, true)
+		if err != nil {
+			outer := fmt.Errorf("Error compiling custom score function: %v", err)
+			mErr.Errors = append(mErr.Errors, outer)
 		}
 	}
 
@@ -5206,9 +5220,6 @@ type TaskGroup struct {
 	// ShutdownDelay is the amount of time to wait between deregistering
 	// group services in consul and stopping tasks.
 	ShutdownDelay *time.Duration
-
-	//XXX(schmichael) ScoreFunc
-	ScoreFunc string
 }
 
 func (tg *TaskGroup) Copy() *TaskGroup {
@@ -5472,17 +5483,6 @@ func (tg *TaskGroup) Validate(j *Job) error {
 
 		if err := task.Validate(tg.EphemeralDisk, j.Type, tg.Services); err != nil {
 			outer := fmt.Errorf("Task %s validation failed: %v", task.Name, err)
-			mErr.Errors = append(mErr.Errors, outer)
-		}
-	}
-
-	//XXX(schmichael) validate the score function is at least valid
-	//javascript. Since it has no side-effects we could probably run it
-	//with dummy data to assert its safe 🤷
-	if len(tg.ScoreFunc) != 0 {
-		_, err := goja.Compile("score_func.js", tg.ScoreFunc, true)
-		if err != nil {
-			outer := fmt.Errorf("Error compiling custom score function: %v", err)
 			mErr.Errors = append(mErr.Errors, outer)
 		}
 	}

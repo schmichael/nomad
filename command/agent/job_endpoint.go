@@ -761,6 +761,10 @@ func ApiJobToStructJob(job *api.Job) *structs.Job {
 		}
 	}
 
+	if job.ScoreFunc != nil {
+		j.ScoreFunc = *job.ScoreFunc
+	}
+
 	if l := len(job.TaskGroups); l != 0 {
 		j.TaskGroups = make([]*structs.TaskGroup, l)
 		for i, taskGroup := range job.TaskGroups {
@@ -885,10 +889,6 @@ func ApiTgToStructsTG(job *structs.Job, taskGroup *api.TaskGroup, tg *structs.Ta
 			ApiTaskToStructsTask(task, t)
 			tg.Tasks[l] = t
 		}
-	}
-
-	if taskGroup.ScoreFunc != nil {
-		tg.ScoreFunc = *taskGroup.ScoreFunc
 	}
 }
 

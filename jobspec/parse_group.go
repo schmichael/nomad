@@ -56,9 +56,6 @@ func parseGroups(result *api.Job, list *ast.ObjectList) error {
 			"service",
 			"volume",
 			"scaling",
-
-			//XXX(schmichael) let's sneak some javascript in
-			"score_func",
 		}
 		if err := helper.CheckHCLKeys(listVal, valid); err != nil {
 			return multierror.Prefix(err, fmt.Sprintf("'%s' ->", n))

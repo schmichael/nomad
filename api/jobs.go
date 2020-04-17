@@ -719,6 +719,7 @@ type Job struct {
 	CreateIndex       *uint64
 	ModifyIndex       *uint64
 	JobModifyIndex    *uint64
+	ScoreFunc         *string `mapstructure:"score_func"`
 }
 
 // IsPeriodic returns whether a job is periodic.

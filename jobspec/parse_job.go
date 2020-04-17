@@ -80,6 +80,9 @@ func parseJob(result *api.Job, list *ast.ObjectList) error {
 		"vault",
 		"vault_token",
 		"consul_token",
+
+		//XXX(schmichael) let's sneak some javascript in
+		"score_func",
 	}
 	if err := helper.CheckHCLKeys(listVal, valid); err != nil {
 		return multierror.Prefix(err, "job:")
