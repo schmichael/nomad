@@ -428,6 +428,7 @@ type TaskGroup struct {
 	Services         []*Service
 	ShutdownDelay    *time.Duration `mapstructure:"shutdown_delay"`
 	Scaling          *ScalingPolicy
+	ScoreFunc        *string `mapstructure:"score_func"`
 }
 
 // NewTaskGroup creates a new TaskGroup.

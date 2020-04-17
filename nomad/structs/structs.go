@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dop251/goja"
 	"github.com/gorhill/cronexpr"
 	"github.com/hashicorp/go-msgpack/codec"
 	hcodec "github.com/hashicorp/go-msgpack/codec"
@@ -5205,6 +5206,9 @@ type TaskGroup struct {
 	// ShutdownDelay is the amount of time to wait between deregistering
 	// group services in consul and stopping tasks.
 	ShutdownDelay *time.Duration
+
+	//XXX(schmichael) ScoreFunc
+	ScoreFunc string
 }
 
 func (tg *TaskGroup) Copy() *TaskGroup {
@@ -5471,6 +5475,18 @@ func (tg *TaskGroup) Validate(j *Job) error {
 			mErr.Errors = append(mErr.Errors, outer)
 		}
 	}
+
+	//XXX(schmichael) validate the score function is at least valid
+	//javascript. Since it has no side-effects we could probably run it
+	//with dummy data to assert its safe 🤷
+	if len(tg.ScoreFunc) != 0 {
+		_, err := goja.Compile("score_func.js", tg.ScoreFunc, true)
+		if err != nil {
+			outer := fmt.Errorf("Error compiling custom score function: %v", err)
+			mErr.Errors = append(mErr.Errors, outer)
+		}
+	}
+
 	return mErr.ErrorOrNil()
 }
 

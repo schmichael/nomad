@@ -886,6 +886,10 @@ func ApiTgToStructsTG(job *structs.Job, taskGroup *api.TaskGroup, tg *structs.Ta
 			tg.Tasks[l] = t
 		}
 	}
+
+	if taskGroup.ScoreFunc != nil {
+		tg.ScoreFunc = *taskGroup.ScoreFunc
+	}
 }
 
 // ApiTaskToStructsTask is a copy and type conversion between the API

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/dop251/goja"
 	"github.com/hashicorp/nomad/nomad/structs"
 )
 
@@ -144,6 +145,11 @@ func (iter *StaticRankIterator) Reset() {
 	iter.seen = 0
 }
 
+// ScoreFunc is given the available resources on a feasible node and the
+// resources needed to place allocations. The ScoreFunc must return a fitness
+// score between 0 and 1 for placing the allocations on the node, or an error.
+type ScoreFunc func(avail, used *structs.ComparableResources) (float64, error)
+
 // BinPackIterator is a RankIterator that scores potential options
 // based on a bin-packing algorithm.
 type BinPackIterator struct {
@@ -153,6 +159,9 @@ type BinPackIterator struct {
 	priority  int
 	jobId     *structs.NamespacedID
 	taskGroup *structs.TaskGroup
+
+	// scoreFunc replaces ScoreFit if non-nil
+	scoreFunc ScoreFunc
 }
 
 // NewBinPackIterator returns a BinPackIterator which tries to fit tasks
@@ -174,6 +183,42 @@ func (iter *BinPackIterator) SetJob(job *structs.Job) {
 
 func (iter *BinPackIterator) SetTaskGroup(taskGroup *structs.TaskGroup) {
 	iter.taskGroup = taskGroup
+
+	//XXX(schmichael) setting this from the task group is likely to produce
+	//incoherent scheduling results but seems like a fun hack to try
+	if len(taskGroup.ScoreFunc) == 0 {
+		iter.scoreFunc = nil
+	} else {
+		// parse the js, log and leave nil on errors as it should have
+		// been parsed and validated upstream
+		p, err := goja.Compile("score_func.js", taskGroup.ScoreFunc, true)
+		if err != nil {
+			iter.ctx.Logger().Named("binpack").Error("error compiling custom score function; using default scoring",
+				"score_func", taskGroup.ScoreFunc, "error", err)
+			return
+		}
+		rt := goja.New()
+		iter.scoreFunc = func(avail, used *structs.ComparableResources) (float64, error) {
+			rt.Set("avail", avail)
+			rt.Set("used", used)
+			//FIXME(schmichael) call rt.Interrupt in 100ms
+			v, err := rt.RunProgram(p)
+			if err != nil {
+				return 0, err
+			}
+			fv := v.ToFloat()
+			if fv < 0 {
+				iter.ctx.Logger().Named("binpack").Warn("custom score func return invalid score <0", "group", taskGroup.Name, "score", fv)
+				return 0, nil
+			} else if fv > 1 {
+				iter.ctx.Logger().Named("binpack").Warn("custom score func return invalid score >1", "group", taskGroup.Name, "score", fv)
+				return 1, nil
+			} else {
+				iter.ctx.Logger().Named("binpack").Debug("custom score func result", "group", taskGroup.Name, "score", fv)
+			}
+			return fv, nil
+		}
+	}
 }
 
 func (iter *BinPackIterator) Next() *RankedNode {
@@ -435,11 +480,27 @@ OUTER:
 			option.PreemptedAllocs = allocsToPreempt
 		}
 
-		// Score the fit normally otherwise
-		fitness := structs.ScoreFit(option.Node, util)
-		normalizedFit := fitness / binPackingMaxFitScore
-		option.Scores = append(option.Scores, normalizedFit)
-		iter.ctx.Metrics().ScoreNode(option.Node, "binpack", normalizedFit)
+		// Score the fit otherwise
+		if iter.scoreFunc == nil {
+			fitness := structs.ScoreFit(option.Node, util)
+			normalizedFit := fitness / binPackingMaxFitScore
+			option.Scores = append(option.Scores, normalizedFit)
+			iter.ctx.Metrics().ScoreNode(option.Node, "binpack", normalizedFit)
+		} else {
+			// Use custom scoring func instead of ScoreFit
+			reserved := option.Node.ComparableReservedResources()
+			available := option.Node.ComparableResources()
+			available.Subtract(reserved)
+			fitness, err := iter.scoreFunc(available, util)
+			if err != nil {
+				iter.ctx.Logger().Named("binpack").Debug("unexpected error using custom scoring algorithm",
+					"error", err)
+			}
+			option.Scores = append(option.Scores, fitness)
+
+			//XXX(schmichael) customize this metric?
+			iter.ctx.Metrics().ScoreNode(option.Node, "binpack", fitness)
+		}
 
 		// Score the device affinity
 		if totalDeviceAffinityWeight != 0 {
