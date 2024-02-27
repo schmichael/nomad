@@ -259,7 +259,7 @@ func TestLeader_EvalBroker_Reset(t *testing.T) {
 	req := structs.EvalUpdateRequest{
 		Evals: []*structs.Evaluation{mock.Eval()},
 	}
-	_, _, err := leader.raftApply(structs.EvalUpdateRequestType, req)
+	_, _, err := leader.apply(structs.EvalUpdateRequestType, req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestLeader_PeriodicDispatcher_Restore_Adds(t *testing.T) {
 				Namespace: job.Namespace,
 			},
 		}
-		_, _, err := leader.raftApply(structs.JobRegisterRequestType, req)
+		_, _, err := leader.apply(structs.JobRegisterRequestType, req)
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
@@ -401,7 +401,7 @@ func TestLeader_PeriodicDispatcher_Restore_NoEvals(t *testing.T) {
 			Namespace: job.Namespace,
 		},
 	}
-	_, _, err := s1.raftApply(structs.JobRegisterRequestType, req)
+	_, _, err := s1.apply(structs.JobRegisterRequestType, req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -484,7 +484,7 @@ func TestLeader_PeriodicDispatcher_Restore_Evals(t *testing.T) {
 			Namespace: job.Namespace,
 		},
 	}
-	_, _, err := s1.raftApply(structs.JobRegisterRequestType, req)
+	_, _, err := s1.apply(structs.JobRegisterRequestType, req)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -556,7 +556,7 @@ func TestLeader_PeriodicDispatcher_No_Overlaps_No_Running_Job(t *testing.T) {
 			Namespace: job.Namespace,
 		},
 	}
-	_, _, err := s1.raftApply(structs.JobRegisterRequestType, req)
+	_, _, err := s1.apply(structs.JobRegisterRequestType, req)
 	must.NoError(t, err)
 
 	// Create an eval for the past launch.
@@ -620,7 +620,7 @@ func TestLeader_PeriodicDispatcher_No_Overlaps_Running_Job(t *testing.T) {
 			Namespace: job.Namespace,
 		},
 	}
-	_, _, err := s1.raftApply(structs.JobRegisterRequestType, req)
+	_, _, err := s1.apply(structs.JobRegisterRequestType, req)
 	must.NoError(t, err)
 
 	// Create an eval for the past launch.

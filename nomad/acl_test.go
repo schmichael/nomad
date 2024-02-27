@@ -88,7 +88,7 @@ func TestAuthenticate_mTLS(t *testing.T) {
 	expireTime := time.Now().Add(time.Second * -10)
 	token2.ExpirationTime = &expireTime
 
-	_, _, err := leader.raftApply(structs.ACLTokenUpsertRequestType,
+	_, _, err := leader.apply(structs.ACLTokenUpsertRequestType,
 		&structs.ACLTokenUpsertRequest{Tokens: []*structs.ACLToken{token1, token2}})
 	must.NoError(t, err)
 
@@ -110,7 +110,7 @@ func TestAuthenticate_mTLS(t *testing.T) {
 	// eval, plan, etc. workflow.
 	job := mock.Job()
 
-	_, _, err = leader.raftApply(structs.JobRegisterRequestType,
+	_, _, err = leader.apply(structs.JobRegisterRequestType,
 		&structs.JobRegisterRequest{Job: job})
 	must.NoError(t, err)
 
@@ -145,7 +145,7 @@ func TestAuthenticate_mTLS(t *testing.T) {
 			Job:   job,
 		},
 	}
-	_, _, err = leader.raftApply(structs.ApplyPlanResultsRequestType, planReq)
+	_, _, err = leader.apply(structs.ApplyPlanResultsRequestType, planReq)
 	must.NoError(t, err)
 
 	testutil.WaitForResult(func() (bool, error) {

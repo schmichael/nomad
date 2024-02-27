@@ -304,7 +304,7 @@ func (e *Eval) Update(args *structs.EvalUpdateRequest,
 	}
 
 	// Update via Raft
-	_, index, err := e.srv.raftApply(structs.EvalUpdateRequestType, args)
+	_, index, err := e.srv.apply(structs.EvalUpdateRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -356,7 +356,7 @@ func (e *Eval) Create(args *structs.EvalUpdateRequest,
 	}
 
 	// Update via Raft
-	_, index, err := e.srv.raftApply(structs.EvalUpdateRequestType, args)
+	_, index, err := e.srv.apply(structs.EvalUpdateRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -430,7 +430,7 @@ func (e *Eval) Reap(args *structs.EvalReapRequest,
 	defer metrics.MeasureSince([]string{"nomad", "eval", "reap"}, time.Now())
 
 	// Update via Raft
-	_, index, err := e.srv.raftApply(structs.EvalDeleteRequestType, args)
+	_, index, err := e.srv.apply(structs.EvalDeleteRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -538,7 +538,7 @@ func (e *Eval) Delete(
 	}
 
 	// Update via Raft.
-	_, index, err := e.srv.raftApply(structs.EvalDeleteRequestType, &raftReq)
+	_, index, err := e.srv.apply(structs.EvalDeleteRequestType, &raftReq)
 	if err != nil {
 		return err
 	}
@@ -612,7 +612,7 @@ func (e *Eval) deleteEvalsByFilter(args *structs.EvalDeleteRequest) (int, uint64
 
 		if pageCount >= perPage {
 			raftReq.PerPage = int32(pageCount)
-			_, index, err = e.srv.raftApply(structs.EvalDeleteRequestType, &raftReq)
+			_, index, err = e.srv.apply(structs.EvalDeleteRequestType, &raftReq)
 			if err != nil {
 				return count, index, err
 			}
@@ -626,7 +626,7 @@ func (e *Eval) deleteEvalsByFilter(args *structs.EvalDeleteRequest) (int, uint64
 	// send last batch if it's partial
 	if pageCount > 0 {
 		raftReq.PerPage = int32(pageCount)
-		_, index, err = e.srv.raftApply(structs.EvalDeleteRequestType, &raftReq)
+		_, index, err = e.srv.apply(structs.EvalDeleteRequestType, &raftReq)
 		if err != nil {
 			return count, index, err
 		}

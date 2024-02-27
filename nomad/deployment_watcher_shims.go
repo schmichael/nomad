@@ -4,6 +4,7 @@
 package nomad
 
 import (
+	"github.com/hashicorp/nomad/nomad/applier"
 	"github.com/hashicorp/nomad/nomad/structs"
 )
 
@@ -11,8 +12,7 @@ import (
 // methods. These should be set by the server and passed to the deployment
 // watcher.
 type deploymentWatcherRaftShim struct {
-	// apply is used to apply a message to Raft
-	apply raftApplyFn
+	applier applier.Applier
 }
 
 // convertApplyErrors parses the results of a raftApply and returns the index at
@@ -34,26 +34,26 @@ func (d *deploymentWatcherRaftShim) UpsertJob(job *structs.Job) (uint64, error) 
 		Job: job,
 	}
 
-	fsmErrIntf, index, raftErr := d.apply(structs.JobRegisterRequestType, update)
+	fsmErrIntf, index, raftErr := d.applier.Apply(structs.JobRegisterRequestType, update)
 	return d.convertApplyErrors(fsmErrIntf, index, raftErr)
 }
 
 func (d *deploymentWatcherRaftShim) UpdateDeploymentStatus(u *structs.DeploymentStatusUpdateRequest) (uint64, error) {
-	fsmErrIntf, index, raftErr := d.apply(structs.DeploymentStatusUpdateRequestType, u)
+	fsmErrIntf, index, raftErr := d.applier.Apply(structs.DeploymentStatusUpdateRequestType, u)
 	return d.convertApplyErrors(fsmErrIntf, index, raftErr)
 }
 
 func (d *deploymentWatcherRaftShim) UpdateDeploymentPromotion(req *structs.ApplyDeploymentPromoteRequest) (uint64, error) {
-	fsmErrIntf, index, raftErr := d.apply(structs.DeploymentPromoteRequestType, req)
+	fsmErrIntf, index, raftErr := d.applier.Apply(structs.DeploymentPromoteRequestType, req)
 	return d.convertApplyErrors(fsmErrIntf, index, raftErr)
 }
 
 func (d *deploymentWatcherRaftShim) UpdateDeploymentAllocHealth(req *structs.ApplyDeploymentAllocHealthRequest) (uint64, error) {
-	fsmErrIntf, index, raftErr := d.apply(structs.DeploymentAllocHealthRequestType, req)
+	fsmErrIntf, index, raftErr := d.applier.Apply(structs.DeploymentAllocHealthRequestType, req)
 	return d.convertApplyErrors(fsmErrIntf, index, raftErr)
 }
 
 func (d *deploymentWatcherRaftShim) UpdateAllocDesiredTransition(req *structs.AllocUpdateDesiredTransitionRequest) (uint64, error) {
-	fsmErrIntf, index, raftErr := d.apply(structs.AllocUpdateDesiredTransitionRequestType, req)
+	fsmErrIntf, index, raftErr := d.applier.Apply(structs.AllocUpdateDesiredTransitionRequestType, req)
 	return d.convertApplyErrors(fsmErrIntf, index, raftErr)
 }

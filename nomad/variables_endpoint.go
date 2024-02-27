@@ -137,7 +137,7 @@ func (sv *Variables) Apply(args *structs.VariablesApplyRequest, reply *structs.V
 	}
 
 	// Apply the update.
-	o, index, err := sv.srv.raftApply(structs.VarApplyStateRequestType, sveArgs)
+	o, index, err := sv.srv.apply(structs.VarApplyStateRequestType, sveArgs)
 	if err != nil {
 		return fmt.Errorf("raft apply failed: %w", err)
 	}

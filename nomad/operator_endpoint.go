@@ -414,7 +414,7 @@ func (op *Operator) AutopilotSetConfiguration(args *structs.AutopilotSetConfigRe
 	}
 
 	// Apply the update
-	resp, _, err := op.srv.raftApply(structs.AutopilotRequestType, args)
+	resp, _, err := op.srv.apply(structs.AutopilotRequestType, args)
 	if err != nil {
 		op.logger.Error("failed applying AutoPilot configuration", "error", err)
 		return err
@@ -491,7 +491,7 @@ func (op *Operator) SchedulerSetConfiguration(args *structs.SchedulerSetConfigRe
 	}
 
 	// Apply the update
-	resp, index, err := op.srv.raftApply(structs.SchedulerConfigRequestType, args)
+	resp, index, err := op.srv.apply(structs.SchedulerConfigRequestType, args)
 	if err != nil {
 		op.logger.Error("failed applying Scheduler configuration", "error", err)
 		return err

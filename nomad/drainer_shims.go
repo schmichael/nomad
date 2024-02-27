@@ -31,7 +31,7 @@ func (d drainerShim) NodesDrainComplete(nodes []string, event *structs.NodeEvent
 		}
 	}
 
-	_, index, err := d.s.raftApply(structs.BatchNodeUpdateDrainRequestType, args)
+	_, index, err := d.s.apply(structs.BatchNodeUpdateDrainRequestType, args)
 	return index, err
 }
 
@@ -41,6 +41,6 @@ func (d drainerShim) AllocUpdateDesiredTransition(allocs map[string]*structs.Des
 		Evals:        evals,
 		WriteRequest: structs.WriteRequest{Region: d.s.config.Region},
 	}
-	_, index, err := d.s.raftApply(structs.AllocUpdateDesiredTransitionRequestType, args)
+	_, index, err := d.s.apply(structs.AllocUpdateDesiredTransitionRequestType, args)
 	return index, err
 }

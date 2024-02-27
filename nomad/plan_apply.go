@@ -348,14 +348,14 @@ func (p *planner) applyPlan(plan *structs.Plan, result *structs.PlanResult, snap
 	req.PreemptionEvals = evals
 
 	// Dispatch the Raft transaction
-	future, err := p.srv.raftApplyFuture(structs.ApplyPlanResultsRequestType, &req)
+	future, err := p.srv.applier.ApplyFuture(structs.ApplyPlanResultsRequestType, &req)
 	if err != nil {
 		return nil, err
 	}
 
 	// Optimistically apply to our state view
 	if snap != nil {
-		nextIdx := p.srv.raft.AppliedIndex() + 1
+		nextIdx := p.srv.applier.AppliedIndex() + 1
 		if err := snap.UpsertPlanResults(structs.ApplyPlanResultsRequestType, nextIdx, &req); err != nil {
 			return future, err
 		}

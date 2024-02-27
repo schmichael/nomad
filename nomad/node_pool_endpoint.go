@@ -219,7 +219,7 @@ func (n *NodePool) UpsertNodePools(args *structs.NodePoolUpsertRequest, reply *s
 	}
 
 	// Update via Raft.
-	_, index, err := n.srv.raftApply(structs.NodePoolUpsertRequestType, args)
+	_, index, err := n.srv.apply(structs.NodePoolUpsertRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -295,7 +295,7 @@ func (n *NodePool) DeleteNodePools(args *structs.NodePoolDeleteRequest, reply *s
 	}
 
 	// Delete via Raft.
-	_, index, err := n.srv.raftApply(structs.NodePoolDeleteRequestType, args)
+	_, index, err := n.srv.apply(structs.NodePoolDeleteRequestType, args)
 	if err != nil {
 		return err
 	}

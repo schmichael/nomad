@@ -83,7 +83,7 @@ func (t *TTLTimer) StopAndRemoveAll() {
 
 // EmitMetrics is a long-running routine used to emit periodic metrics about
 // the Timer.
-func (t *TTLTimer) EmitMetrics(period time.Duration, shutdownCh chan struct{}) {
+func (t *TTLTimer) EmitMetrics(period time.Duration, shutdownCh <-chan struct{}) {
 	timer, stop := helper.NewSafeTimer(period)
 	defer stop()
 

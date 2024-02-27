@@ -388,7 +388,7 @@ func (j *Job) Register(args *structs.JobRegisterRequest, reply *structs.JobRegis
 		args.Deployment = j.multiregionCreateDeployment(job, eval)
 
 		// Commit this update via Raft
-		_, index, err := j.srv.raftApply(structs.JobRegisterRequestType, args)
+		_, index, err := j.srv.apply(structs.JobRegisterRequestType, args)
 		if err != nil {
 			j.logger.Error("registering job failed", "error", err)
 			return err
@@ -429,7 +429,7 @@ func (j *Job) Register(args *structs.JobRegisterRequest, reply *structs.JobRegis
 		// Commit this evaluation via Raft
 		// There is a risk of partial failure where the JobRegister succeeds
 		// but that the EvalUpdate does not, before 0.12.1
-		_, evalIndex, err := j.srv.raftApply(structs.EvalUpdateRequestType, update)
+		_, evalIndex, err := j.srv.apply(structs.EvalUpdateRequestType, update)
 		if err != nil {
 			j.logger.Error("eval create failed", "error", err, "method", "register")
 			return err
@@ -712,7 +712,7 @@ func (j *Job) Stable(args *structs.JobStabilityRequest, reply *structs.JobStabil
 	}
 
 	// Commit this stability request via Raft
-	_, modifyIndex, err := j.srv.raftApply(structs.JobStabilityRequestType, args)
+	_, modifyIndex, err := j.srv.apply(structs.JobStabilityRequestType, args)
 	if err != nil {
 		j.logger.Error("submitting job stability request failed", "error", err)
 		return err
@@ -809,7 +809,7 @@ func (j *Job) Evaluate(args *structs.JobEvaluateRequest, reply *structs.JobRegis
 		Allocs: forceRescheduleAllocs,
 		Evals:  []*structs.Evaluation{eval},
 	}
-	_, evalIndex, err := j.srv.raftApply(structs.AllocUpdateDesiredTransitionRequestType, updateTransitionReq)
+	_, evalIndex, err := j.srv.apply(structs.AllocUpdateDesiredTransitionRequestType, updateTransitionReq)
 
 	if err != nil {
 		j.logger.Error("eval create failed", "error", err, "method", "evaluate")
@@ -903,7 +903,7 @@ func (j *Job) Deregister(args *structs.JobDeregisterRequest, reply *structs.JobD
 	args.Eval = eval
 
 	// Commit the job update via Raft
-	_, index, err := j.srv.raftApply(structs.JobDeregisterRequestType, args)
+	_, index, err := j.srv.apply(structs.JobDeregisterRequestType, args)
 	if err != nil {
 		j.logger.Error("deregister failed", "error", err)
 		return err
@@ -1003,7 +1003,7 @@ func (j *Job) BatchDeregister(args *structs.JobBatchDeregisterRequest, reply *st
 	args.SubmitTime = time.Now().UnixNano()
 
 	// Commit this update via Raft
-	_, index, err := j.srv.raftApply(structs.JobBatchDeregisterRequestType, args)
+	_, index, err := j.srv.apply(structs.JobBatchDeregisterRequestType, args)
 	if err != nil {
 		j.logger.Error("batch deregister failed", "error", err)
 		return err
@@ -1139,7 +1139,7 @@ func (j *Job) Scale(args *structs.JobScaleRequest, reply *structs.JobRegisterRes
 		}
 
 		// Commit the job update
-		_, jobModifyIndex, err := j.srv.raftApply(
+		_, jobModifyIndex, err := j.srv.apply(
 			structs.JobRegisterRequestType,
 			structs.JobRegisterRequest{
 				Job:            job,
@@ -1170,7 +1170,7 @@ func (j *Job) Scale(args *structs.JobScaleRequest, reply *structs.JobRegisterRes
 				ModifyTime:     now,
 			}
 
-			_, evalIndex, err := j.srv.raftApply(
+			_, evalIndex, err := j.srv.apply(
 				structs.EvalUpdateRequestType,
 				&structs.EvalUpdateRequest{
 					Evals:        []*structs.Evaluation{eval},
@@ -1190,7 +1190,7 @@ func (j *Job) Scale(args *structs.JobScaleRequest, reply *structs.JobRegisterRes
 		reply.JobModifyIndex = job.ModifyIndex
 	}
 
-	_, eventIndex, err := j.srv.raftApply(structs.ScalingEventRegisterRequestType, event)
+	_, eventIndex, err := j.srv.apply(structs.ScalingEventRegisterRequestType, event)
 	if err != nil {
 		j.logger.Error("scaling event create failed", "error", err)
 		return err
@@ -2125,7 +2125,7 @@ func (j *Job) Dispatch(args *structs.JobDispatchRequest, reply *structs.JobDispa
 	}
 
 	// Commit this update via Raft
-	_, jobCreateIndex, err := j.srv.raftApply(structs.JobRegisterRequestType, regReq)
+	_, jobCreateIndex, err := j.srv.apply(structs.JobRegisterRequestType, regReq)
 	if err != nil {
 		j.logger.Error("dispatched job register failed", "error")
 		return err
@@ -2157,7 +2157,7 @@ func (j *Job) Dispatch(args *structs.JobDispatchRequest, reply *structs.JobDispa
 		}
 
 		// Commit this evaluation via Raft
-		_, evalIndex, err := j.srv.raftApply(structs.EvalUpdateRequestType, update)
+		_, evalIndex, err := j.srv.apply(structs.EvalUpdateRequestType, update)
 		if err != nil {
 			j.logger.Error("eval create failed", "error", err, "method", "dispatch")
 			return err

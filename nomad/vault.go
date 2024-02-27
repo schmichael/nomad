@@ -1355,7 +1355,7 @@ func (v *vaultClient) revokeDaemon() {
 func (s *Server) purgeVaultAccessors(accessors []*structs.VaultAccessor) error {
 	// Commit this update via Raft
 	req := structs.VaultAccessorsRequest{Accessors: accessors}
-	_, _, err := s.raftApply(structs.VaultAccessorDeregisterRequestType, req)
+	_, _, err := s.apply(structs.VaultAccessorDeregisterRequestType, req)
 	return err
 }
 

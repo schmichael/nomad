@@ -49,6 +49,9 @@ type Config struct {
 	//      attempt to form a cluster or establish leadership on its own.
 	BootstrapExpect int
 
+	// SingleServer disables raft
+	SingleServer bool
+
 	// DataDir is the directory to store our state in
 	DataDir string
 

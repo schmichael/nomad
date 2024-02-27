@@ -72,7 +72,7 @@ func (k *Keyring) Rotate(args *structs.KeyringRotateRootKeyRequest, reply *struc
 		Rekey:        args.Full,
 		WriteRequest: args.WriteRequest,
 	}
-	_, index, err := k.srv.raftApply(structs.RootKeyMetaUpsertRequestType, req)
+	_, index, err := k.srv.apply(structs.RootKeyMetaUpsertRequestType, req)
 	if err != nil {
 		return err
 	}
@@ -191,7 +191,7 @@ func (k *Keyring) Update(args *structs.KeyringUpdateRootKeyRequest, reply *struc
 	}
 
 	// update the metadata via Raft
-	_, index, err := k.srv.raftApply(structs.RootKeyMetaUpsertRequestType, metaReq)
+	_, index, err := k.srv.apply(structs.RootKeyMetaUpsertRequestType, metaReq)
 	if err != nil {
 		return err
 	}
@@ -339,7 +339,7 @@ func (k *Keyring) Delete(args *structs.KeyringDeleteRootKeyRequest, reply *struc
 	}
 
 	// update via Raft
-	_, index, err := k.srv.raftApply(structs.RootKeyMetaDeleteRequestType, args)
+	_, index, err := k.srv.apply(structs.RootKeyMetaDeleteRequestType, args)
 	if err != nil {
 		return err
 	}

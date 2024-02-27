@@ -27,20 +27,7 @@ import (
 	"github.com/hashicorp/nomad/nomad/state"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/nomad/structs/config"
-	"github.com/hashicorp/raft"
 	"github.com/hashicorp/yamux"
-)
-
-const (
-	// Warn if the Raft command is larger than this.
-	// If it's over 1MB something is probably being abusive.
-	raftWarnSize = 1024 * 1024
-
-	// enqueueLimit caps how long we will wait to enqueue
-	// a new Raft command. Something is probably wrong if this
-	// value is ever reached. However, it prevents us from blocking
-	// the requesting goroutine forever.
-	enqueueLimit = 30 * time.Second
 )
 
 type rpcHandler struct {
@@ -305,6 +292,13 @@ func (r *rpcHandler) handleConn(ctx context.Context, conn net.Conn, rpcCtx *RPCC
 		r.srv.removeNodeConn(rpcCtx)
 
 	case pool.RpcRaft:
+		// HACK(schmichael)
+		if r.srv.config.SingleServer {
+			r.logger.Warn("single server mode; raft connection rejected", "remote_addr", conn.RemoteAddr())
+			conn.Close()
+			return
+		}
+
 		metrics.IncrCounter([]string{"nomad", "rpc", "raft_handoff"}, 1)
 		// Ensure that when TLS is configured, only certificates from `server.<region>.nomad` are accepted for Raft connections.
 		if err := r.validateRaftTLS(rpcCtx); err != nil {
@@ -784,41 +778,8 @@ func (r *rpcHandler) streamingRpcImpl(conn net.Conn, method string) (net.Conn, e
 	return conn, nil
 }
 
-// raftApplyFuture is used to encode a message, run it through raft, and return the Raft future.
-func (s *Server) raftApplyFuture(t structs.MessageType, msg interface{}) (raft.ApplyFuture, error) {
-	buf, err := structs.Encode(t, msg)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to encode request: %v", err)
-	}
-
-	// Warn if the command is very large
-	if n := len(buf); n > raftWarnSize {
-		s.logger.Warn("attempting to apply large raft entry", "raft_type", t, "bytes", n)
-	}
-
-	future := s.raft.Apply(buf, enqueueLimit)
-	return future, nil
-}
-
-// raftApplyFn is the function signature for applying a msg to Raft
-type raftApplyFn func(t structs.MessageType, msg interface{}) (interface{}, uint64, error)
-
-// raftApply is used to encode a message, run it through raft, and return the
-// FSM response along with any errors. If the FSM.Apply response is an error it
-// will be returned as the error return value with a nil response.
-func (s *Server) raftApply(t structs.MessageType, msg any) (any, uint64, error) {
-	future, err := s.raftApplyFuture(t, msg)
-	if err != nil {
-		return nil, 0, err
-	}
-	if err := future.Error(); err != nil {
-		return nil, 0, err
-	}
-	resp := future.Response()
-	if err, ok := resp.(error); ok && err != nil {
-		return nil, future.Index(), err
-	}
-	return resp, future.Index(), nil
+func (s *Server) apply(t structs.MessageType, msg any) (any, uint64, error) {
+	return s.applier.Apply(t, msg)
 }
 
 // setQueryMeta is used to populate the QueryMeta data for an RPC call

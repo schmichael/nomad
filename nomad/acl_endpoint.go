@@ -114,7 +114,7 @@ func (a *ACL) UpsertPolicies(args *structs.ACLPolicyUpsertRequest, reply *struct
 	}
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.ACLPolicyUpsertRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLPolicyUpsertRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func (a *ACL) DeletePolicies(args *structs.ACLPolicyDeleteRequest, reply *struct
 	}
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.ACLPolicyDeleteRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLPolicyDeleteRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -539,7 +539,7 @@ func (a *ACL) Bootstrap(args *structs.ACLTokenBootstrapRequest, reply *structs.A
 	args.Token.SetHash()
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.ACLTokenBootstrapRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLTokenBootstrapRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -740,7 +740,7 @@ func (a *ACL) upsertTokens(
 	}
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.ACLTokenUpsertRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLTokenUpsertRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -838,7 +838,7 @@ func (a *ACL) DeleteTokens(args *structs.ACLTokenDeleteRequest, reply *structs.G
 	}
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.ACLTokenDeleteRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLTokenDeleteRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -1139,7 +1139,7 @@ func (a *ACL) UpsertOneTimeToken(args *structs.OneTimeTokenUpsertRequest, reply 
 	}
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.OneTimeTokenUpsertRequestType, ott)
+	_, index, err := a.srv.apply(structs.OneTimeTokenUpsertRequestType, ott)
 	if err != nil {
 		return err
 	}
@@ -1197,7 +1197,7 @@ func (a *ACL) ExchangeOneTimeToken(args *structs.OneTimeTokenExchangeRequest, re
 
 	// Expire token via raft; because this is the only write in the RPC the
 	// caller can safely retry with the same token if the raft write fails
-	_, index, err := a.srv.raftApply(structs.OneTimeTokenDeleteRequestType,
+	_, index, err := a.srv.apply(structs.OneTimeTokenDeleteRequestType,
 		&structs.OneTimeTokenDeleteRequest{
 			AccessorIDs: []string{ott.AccessorID},
 		})
@@ -1243,7 +1243,7 @@ func (a *ACL) ExpireOneTimeTokens(args *structs.OneTimeTokenExpireRequest, reply
 
 	// Expire token via raft; because this is the only write in the RPC the
 	// caller can safely retry with the same token if the raft write fails
-	_, index, err := a.srv.raftApply(structs.OneTimeTokenExpireRequestType, args)
+	_, index, err := a.srv.apply(structs.OneTimeTokenExpireRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -1367,7 +1367,7 @@ func (a *ACL) UpsertRoles(
 	}
 
 	// Update via Raft.
-	_, index, err := a.srv.raftApply(structs.ACLRolesUpsertRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLRolesUpsertRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -1433,7 +1433,7 @@ func (a *ACL) DeleteRolesByID(
 	}
 
 	// Update via Raft.
-	_, index, err := a.srv.raftApply(structs.ACLRolesDeleteByIDRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLRolesDeleteByIDRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -1914,7 +1914,7 @@ func (a *ACL) UpsertAuthMethods(
 	}
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.ACLAuthMethodsUpsertRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLAuthMethodsUpsertRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -1982,7 +1982,7 @@ func (a *ACL) DeleteAuthMethods(
 	}
 
 	// Update via Raft
-	_, index, err := a.srv.raftApply(structs.ACLAuthMethodsDeleteRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLAuthMethodsDeleteRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -2293,7 +2293,7 @@ func (a *ACL) UpsertBindingRules(
 	}
 
 	// Update via Raft.
-	_, index, err := a.srv.raftApply(structs.ACLBindingRulesUpsertRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLBindingRulesUpsertRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -2363,7 +2363,7 @@ func (a *ACL) DeleteBindingRules(
 	}
 
 	// Update via Raft.
-	_, index, err := a.srv.raftApply(structs.ACLBindingRulesDeleteRequestType, args)
+	_, index, err := a.srv.apply(structs.ACLBindingRulesDeleteRequestType, args)
 	if err != nil {
 		return err
 	}

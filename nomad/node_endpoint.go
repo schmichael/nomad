@@ -220,7 +220,7 @@ func (n *Node) Register(args *structs.NodeRegisterRequest, reply *structs.NodeUp
 	if n.srv.Region() == n.srv.config.AuthoritativeRegion {
 		args.CreateNodePool = true
 	}
-	_, index, err := n.srv.raftApply(structs.NodeRegisterRequestType, args)
+	_, index, err := n.srv.apply(structs.NodeRegisterRequestType, args)
 	if err != nil {
 		n.logger.Error("register failed", "error", err)
 		return err
@@ -317,6 +317,18 @@ func equalDevices(n1, n2 *structs.Node) bool {
 
 // constructNodeServerInfoResponse assumes the n.srv.peerLock is held for reading.
 func (n *Node) constructNodeServerInfoResponse(nodeID string, snap *state.StateSnapshot, reply *structs.NodeUpdateResponse) error {
+	if n.srv.config.SingleServer {
+		addr := n.srv.clientRpcAdvertise.String()
+		reply.LeaderRPCAddr = addr
+		reply.Servers = []*structs.NodeServerInfo{
+			{
+				RPCAdvertiseAddr: addr,
+				Datacenter:       n.srv.config.Datacenter,
+			},
+		}
+		return nil
+	}
+
 	leaderAddr, _ := n.srv.raft.LeaderWithID()
 	reply.LeaderRPCAddr = string(leaderAddr)
 
@@ -400,7 +412,7 @@ func (n *Node) Deregister(args *structs.NodeDeregisterRequest, reply *structs.No
 	}
 
 	return n.deregister(repack, reply, func() (interface{}, uint64, error) {
-		return n.srv.raftApply(structs.NodeDeregisterRequestType, args)
+		return n.srv.apply(structs.NodeDeregisterRequestType, args)
 	})
 }
 
@@ -427,7 +439,7 @@ func (n *Node) BatchDeregister(args *structs.NodeBatchDeregisterRequest, reply *
 	}
 
 	return n.deregister(args, reply, func() (interface{}, uint64, error) {
-		return n.srv.raftApply(structs.NodeBatchDeregisterRequestType, args)
+		return n.srv.apply(structs.NodeBatchDeregisterRequestType, args)
 	})
 }
 
@@ -648,7 +660,7 @@ func (n *Node) UpdateStatus(args *structs.NodeUpdateStatusRequest, reply *struct
 				SetMessage(NodeHeartbeatEventReregistered)
 		}
 
-		_, index, err = n.srv.raftApply(structs.NodeUpdateStatusRequestType, args)
+		_, index, err = n.srv.apply(structs.NodeUpdateStatusRequestType, args)
 		if err != nil {
 			n.logger.Error("status update failed", "error", err)
 			return err
@@ -709,7 +721,7 @@ func (n *Node) UpdateStatus(args *structs.NodeUpdateStatusRequest, reply *struct
 
 			deleteRegReq := structs.ServiceRegistrationDeleteByNodeIDRequest{NodeID: args.NodeID}
 
-			_, index, err = n.srv.raftApply(structs.ServiceRegistrationDeleteByNodeIDRequestType, &deleteRegReq)
+			_, index, err = n.srv.apply(structs.ServiceRegistrationDeleteByNodeIDRequestType, &deleteRegReq)
 			if err != nil {
 				n.logger.Error("failed to delete service registrations for node",
 					"node_id", args.NodeID, "error", err)
@@ -823,7 +835,7 @@ func (n *Node) UpdateDrain(args *structs.NodeUpdateDrainRequest,
 	}
 
 	// Commit this update via Raft
-	_, index, err := n.srv.raftApply(structs.NodeUpdateDrainRequestType, args)
+	_, index, err := n.srv.apply(structs.NodeUpdateDrainRequestType, args)
 	if err != nil {
 		n.logger.Error("drain update failed", "error", err)
 		return err
@@ -923,7 +935,7 @@ func (n *Node) UpdateEligibility(args *structs.NodeUpdateEligibilityRequest,
 	}
 
 	// Commit this update via Raft
-	outErr, index, err := n.srv.raftApply(structs.NodeUpdateEligibilityRequestType, args)
+	outErr, index, err := n.srv.apply(structs.NodeUpdateEligibilityRequestType, args)
 	if err != nil {
 		n.logger.Error("eligibility update failed", "error", err)
 		return err
@@ -1523,7 +1535,7 @@ func (n *Node) batchUpdate(future *structs.BatchFuture, updates []*structs.Alloc
 	}
 
 	// Commit this update via Raft
-	_, index, err := n.srv.raftApply(structs.AllocClientUpdateRequestType, batch)
+	_, index, err := n.srv.apply(structs.AllocClientUpdateRequestType, batch)
 	if err != nil {
 		n.logger.Error("alloc update failed", "error", err)
 		mErr.Errors = append(mErr.Errors, err)
@@ -1770,7 +1782,7 @@ func (n *Node) createNodeEvals(node *structs.Node, nodeIndex uint64) ([]string, 
 	// Commit this evaluation via Raft
 	// XXX: There is a risk of partial failure where the node update succeeds
 	// but that the EvalUpdate does not.
-	_, evalIndex, err := n.srv.raftApply(structs.EvalUpdateRequestType, update)
+	_, evalIndex, err := n.srv.apply(structs.EvalUpdateRequestType, update)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1982,7 +1994,7 @@ func (n *Node) DeriveVaultToken(args *structs.DeriveVaultTokenRequest, reply *st
 
 	// Commit to Raft before returning any of the tokens
 	req := structs.VaultAccessorsRequest{Accessors: accessors}
-	_, index, err := n.srv.raftApply(structs.VaultAccessorRegisterRequestType, &req)
+	_, index, err := n.srv.apply(structs.VaultAccessorRegisterRequestType, &req)
 	if err != nil {
 		n.logger.Error("registering Vault accessors for alloc failed", "alloc_id", alloc.ID, "error", err)
 
@@ -2204,7 +2216,7 @@ func (n *Node) DeriveSIToken(args *structs.DeriveSITokenRequest, reply *structs.
 
 	// Commit the derived tokens to raft before returning them
 	requested := structs.SITokenAccessorsRequest{Accessors: accessors}
-	_, index, err := n.srv.raftApply(structs.ServiceIdentityAccessorRegisterRequestType, &requested)
+	_, index, err := n.srv.apply(structs.ServiceIdentityAccessorRegisterRequestType, &requested)
 	if err != nil {
 		n.logger.Error("registering Service Identity token accessors for alloc failed", "alloc_id", alloc.ID, "error", err)
 
@@ -2276,7 +2288,7 @@ func (n *Node) EmitEvents(args *structs.EmitNodeEventsRequest, reply *structs.Em
 		}
 	}
 
-	_, index, err := n.srv.raftApply(structs.UpsertNodeEventsType, args)
+	_, index, err := n.srv.apply(structs.UpsertNodeEventsType, args)
 	if err != nil {
 		n.logger.Error("upserting node events failed", "error", err)
 		return err
