@@ -625,7 +625,7 @@ func (d *Deployment) Reap(args *structs.DeploymentDeleteRequest,
 	defer metrics.MeasureSince([]string{"nomad", "deployment", "reap"}, time.Now())
 
 	// Update via Raft
-	_, index, err := d.srv.raftApply(structs.DeploymentDeleteRequestType, args)
+	_, index, err := d.srv.apply(structs.DeploymentDeleteRequestType, args)
 	if err != nil {
 		return err
 	}

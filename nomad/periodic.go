@@ -71,7 +71,7 @@ func (s *Server) DispatchJob(job *structs.Job) (*structs.Evaluation, error) {
 			Namespace: job.Namespace,
 		},
 	}
-	_, index, err := s.raftApply(structs.JobRegisterRequestType, req)
+	_, index, err := s.apply(structs.JobRegisterRequestType, req)
 	if err != nil {
 		return nil, err
 	}

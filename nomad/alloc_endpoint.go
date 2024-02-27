@@ -325,7 +325,7 @@ func (a *Alloc) Stop(args *structs.AllocStopRequest, reply *structs.AllocStopRes
 	}
 
 	// Commit this update via Raft
-	_, index, err := a.srv.raftApply(structs.AllocUpdateDesiredTransitionRequestType, transitionReq)
+	_, index, err := a.srv.apply(structs.AllocUpdateDesiredTransitionRequestType, transitionReq)
 	if err != nil {
 		a.logger.Error("AllocUpdateDesiredTransitionRequest failed", "error", err)
 		return err
@@ -364,7 +364,7 @@ func (a *Alloc) UpdateDesiredTransition(args *structs.AllocUpdateDesiredTransiti
 	}
 
 	// Commit this update via Raft
-	_, index, err := a.srv.raftApply(structs.AllocUpdateDesiredTransitionRequestType, args)
+	_, index, err := a.srv.apply(structs.AllocUpdateDesiredTransitionRequestType, args)
 	if err != nil {
 		a.logger.Error("AllocUpdateDesiredTransitionRequest failed", "error", err)
 		return err

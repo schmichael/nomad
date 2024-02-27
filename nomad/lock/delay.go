@@ -67,7 +67,7 @@ func (d *DelayTimer) RemoveAll() {
 
 // EmitMetrics is a long-running routine used to emit periodic metrics about
 // the Delay.
-func (d *DelayTimer) EmitMetrics(period time.Duration, shutdownCh chan struct{}) {
+func (d *DelayTimer) EmitMetrics(period time.Duration, shutdownCh <-chan struct{}) {
 	timer, stop := helper.NewSafeTimer(period)
 	defer stop()
 

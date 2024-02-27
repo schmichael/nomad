@@ -553,7 +553,7 @@ func TestEncrypter_Upgrade17(t *testing.T) {
 		RootKeyMeta:  oldRootKey.Meta,
 		WriteRequest: wr,
 	}
-	_, _, err = srv.raftApply(structs.RootKeyMetaUpsertRequestType, req)
+	_, _, err = srv.apply(structs.RootKeyMetaUpsertRequestType, req)
 	must.NoError(t, err)
 
 	// Create a 1.6 style workload identity

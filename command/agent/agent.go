@@ -205,6 +205,9 @@ func convertServerConfig(agentConfig *Config) (*nomad.Config, error) {
 	if agentConfig.Server.BootstrapExpect > 0 {
 		conf.BootstrapExpect = agentConfig.Server.BootstrapExpect
 	}
+	if agentConfig.Server.SingleServer {
+		conf.SingleServer = true
+	}
 	if agentConfig.DataDir != "" {
 		conf.DataDir = filepath.Join(agentConfig.DataDir, "server")
 	}

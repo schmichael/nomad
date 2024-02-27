@@ -78,7 +78,7 @@ func (s *ServiceRegistration) Upsert(
 	}
 
 	// Update via Raft.
-	_, index, err := s.srv.raftApply(structs.ServiceRegistrationUpsertRequestType, args)
+	_, index, err := s.srv.apply(structs.ServiceRegistrationUpsertRequestType, args)
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func (s *ServiceRegistration) DeleteByID(
 	}
 
 	// Update via Raft.
-	_, index, err := s.srv.raftApply(structs.ServiceRegistrationDeleteByIDRequestType, args)
+	_, index, err := s.srv.apply(structs.ServiceRegistrationDeleteByIDRequestType, args)
 	if err != nil {
 		return err
 	}

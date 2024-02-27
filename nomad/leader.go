@@ -102,7 +102,7 @@ func (s *Server) monitorLeadership() {
 
 			weAreLeaderCh = make(chan struct{})
 			leaderLoop.Add(1)
-			go func(ch chan struct{}) {
+			go func(ch <-chan struct{}) {
 				defer leaderLoop.Done()
 				s.leaderLoop(ch)
 			}(weAreLeaderCh)
@@ -224,7 +224,7 @@ func (s *Server) leadershipTransfer() error {
 
 // leaderLoop runs as long as we are the leader to run various
 // maintenance activities
-func (s *Server) leaderLoop(stopCh chan struct{}) {
+func (s *Server) leaderLoop(stopCh <-chan struct{}) {
 	var reconcileCh chan serf.Member
 	establishedLeader := false
 
@@ -354,7 +354,7 @@ WAIT:
 // to invoke an initial barrier. The barrier is used to ensure any
 // previously inflight transactions have been committed and that our
 // state is up-to-date.
-func (s *Server) establishLeadership(stopCh chan struct{}) error {
+func (s *Server) establishLeadership(stopCh <-chan struct{}) error {
 	defer metrics.MeasureSince([]string{"nomad", "leader", "establish_leadership"}, time.Now())
 
 	// Generate a leader ACL token. This will allow the leader to issue work
@@ -366,8 +366,10 @@ func (s *Server) establishLeadership(stopCh chan struct{}) error {
 	s.handlePausableWorkers(true)
 
 	// Initialize and start the autopilot routine
-	s.getOrCreateAutopilotConfig()
-	s.autopilot.Start(s.shutdownCtx)
+	if s.raft != nil {
+		s.getOrCreateAutopilotConfig()
+		s.autopilot.Start(s.shutdownCtx)
+	}
 
 	// Initialize scheduler configuration.
 	schedulerConfig := s.getOrCreateSchedulerConfig()
@@ -515,7 +517,7 @@ func (s *Server) establishLeadership(stopCh chan struct{}) error {
 
 // replicateNamespaces is used to replicate namespaces from the authoritative
 // region to this region.
-func (s *Server) replicateNamespaces(stopCh chan struct{}) {
+func (s *Server) replicateNamespaces(stopCh <-chan struct{}) {
 	req := structs.NamespaceListRequest{
 		QueryOptions: structs.QueryOptions{
 			Region:     s.config.AuthoritativeRegion,
@@ -553,7 +555,7 @@ START:
 			args := &structs.NamespaceDeleteRequest{
 				Namespaces: delete,
 			}
-			_, _, err := s.raftApply(structs.NamespaceDeleteRequestType, args)
+			_, _, err := s.apply(structs.NamespaceDeleteRequestType, args)
 			if err != nil {
 				s.logger.Error("failed to delete namespaces", "error", err)
 				goto ERR_WAIT
@@ -587,7 +589,7 @@ START:
 			args := &structs.NamespaceUpsertRequest{
 				Namespaces: fetched,
 			}
-			_, _, err := s.raftApply(structs.NamespaceUpsertRequestType, args)
+			_, _, err := s.apply(structs.NamespaceUpsertRequestType, args)
 			if err != nil {
 				s.logger.Error("failed to update namespaces", "error", err)
 				goto ERR_WAIT
@@ -665,7 +667,7 @@ func diffNamespaces(state *state.StateStore, minIndex uint64, remoteList []*stru
 
 // replicateNodePools is used to replicate node pools from the authoritative
 // region to this region.
-func (s *Server) replicateNodePools(stopCh chan struct{}) {
+func (s *Server) replicateNodePools(stopCh <-chan struct{}) {
 	req := structs.NodePoolListRequest{
 		QueryOptions: structs.QueryOptions{
 			Region:     s.config.AuthoritativeRegion,
@@ -725,7 +727,7 @@ func (s *Server) replicateNodePools(stopCh chan struct{}) {
 			args := &structs.NodePoolDeleteRequest{
 				Names: delete,
 			}
-			_, _, err := s.raftApply(structs.NodePoolDeleteRequestType, args)
+			_, _, err := s.apply(structs.NodePoolDeleteRequestType, args)
 			if err != nil {
 				s.logger.Error("failed to delete node pools", "error", err)
 				if s.replicationBackoffContinue(stopCh) {
@@ -741,7 +743,7 @@ func (s *Server) replicateNodePools(stopCh chan struct{}) {
 			args := &structs.NodePoolUpsertRequest{
 				NodePools: update,
 			}
-			_, _, err := s.raftApply(structs.NodePoolUpsertRequestType, args)
+			_, _, err := s.apply(structs.NodePoolUpsertRequestType, args)
 			if err != nil {
 				s.logger.Error("failed to update node pools", "error", err)
 				if s.replicationBackoffContinue(stopCh) {
@@ -1029,7 +1031,7 @@ func (s *Server) cronJobOverlapAllowed(job *structs.Job) (bool, error) {
 }
 
 // schedulePeriodic is used to do periodic job dispatch while we are leader
-func (s *Server) schedulePeriodic(stopCh chan struct{}) {
+func (s *Server) schedulePeriodic(stopCh <-chan struct{}) {
 	evalGC := time.NewTicker(s.config.EvalGCInterval)
 	defer evalGC.Stop()
 	nodeGC := time.NewTicker(s.config.NodeGCInterval)
@@ -1111,7 +1113,7 @@ func (s *Server) schedulePeriodic(stopCh chan struct{}) {
 // the leader within the authoritative region only. It periodically queues work
 // onto the _core scheduler for ACL based activities such as removing expired
 // global ACL tokens.
-func (s *Server) schedulePeriodicAuthoritative(stopCh chan struct{}) {
+func (s *Server) schedulePeriodicAuthoritative(stopCh <-chan struct{}) {
 
 	// Set up the expired ACL global token garbage collection timer.
 	globalTokenExpiredGC, globalTokenExpiredGCStop := helper.NewSafeTimer(s.config.ACLTokenExpirationGCInterval)
@@ -1159,7 +1161,7 @@ func (s *Server) coreJobEval(job string, modifyIndex uint64) *structs.Evaluation
 
 // reapFailedEvaluations is used to reap evaluations that
 // have reached their delivery limit and should be failed
-func (s *Server) reapFailedEvaluations(stopCh chan struct{}) {
+func (s *Server) reapFailedEvaluations(stopCh <-chan struct{}) {
 	for {
 		select {
 		case <-stopCh:
@@ -1201,7 +1203,7 @@ func (s *Server) reapFailedEvaluations(stopCh chan struct{}) {
 				req := structs.EvalUpdateRequest{
 					Evals: []*structs.Evaluation{updateEval, followupEval},
 				}
-				if _, _, err := s.raftApply(structs.EvalUpdateRequestType, &req); err != nil {
+				if _, _, err := s.apply(structs.EvalUpdateRequestType, &req); err != nil {
 					s.logger.Error("failed to update failed eval and create a follow-up",
 						"eval", hclog.Fmt("%#v", updateEval), "error", err)
 					continue
@@ -1215,7 +1217,7 @@ func (s *Server) reapFailedEvaluations(stopCh chan struct{}) {
 
 // reapDupBlockedEvaluations is used to reap duplicate blocked evaluations and
 // should be cancelled.
-func (s *Server) reapDupBlockedEvaluations(stopCh chan struct{}) {
+func (s *Server) reapDupBlockedEvaluations(stopCh <-chan struct{}) {
 	for {
 		select {
 		case <-stopCh:
@@ -1241,7 +1243,7 @@ func (s *Server) reapDupBlockedEvaluations(stopCh chan struct{}) {
 			req := structs.EvalUpdateRequest{
 				Evals: cancel,
 			}
-			if _, _, err := s.raftApply(structs.EvalUpdateRequestType, &req); err != nil {
+			if _, _, err := s.apply(structs.EvalUpdateRequestType, &req); err != nil {
 				s.logger.Error("failed to update duplicate evals", "evals", hclog.Fmt("%#v", cancel), "error", err)
 				continue
 			}
@@ -1254,7 +1256,7 @@ func (s *Server) reapDupBlockedEvaluations(stopCh chan struct{}) {
 // whenever an eval Acks, but this ensures that we don't have a straggling batch
 // when the cluster doesn't have any more work to do. Returns a wake-up channel
 // that can be used to trigger a new reap without waiting for the timer
-func (s *Server) reapCancelableEvaluations(stopCh chan struct{}) chan struct{} {
+func (s *Server) reapCancelableEvaluations(stopCh <-chan struct{}) chan struct{} {
 
 	wakeCh := make(chan struct{}, 1)
 	go func() {
@@ -1302,7 +1304,7 @@ func cancelCancelableEvals(srv *Server) error {
 			Evals:        cancelable,
 			WriteRequest: structs.WriteRequest{Region: srv.Region()},
 		}
-		_, _, err := srv.raftApply(structs.EvalUpdateRequestType, update)
+		_, _, err := srv.apply(structs.EvalUpdateRequestType, update)
 		if err != nil {
 			srv.logger.Warn("eval cancel failed", "error", err, "method", "ack")
 			return err
@@ -1312,7 +1314,7 @@ func cancelCancelableEvals(srv *Server) error {
 }
 
 // periodicUnblockFailedEvals periodically unblocks failed, blocked evaluations.
-func (s *Server) periodicUnblockFailedEvals(stopCh chan struct{}) {
+func (s *Server) periodicUnblockFailedEvals(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(failedEvalUnblockInterval)
 	defer ticker.Stop()
 	for {
@@ -1327,7 +1329,7 @@ func (s *Server) periodicUnblockFailedEvals(stopCh chan struct{}) {
 }
 
 // publishJobSummaryMetrics publishes the job summaries as metrics
-func (s *Server) publishJobSummaryMetrics(stopCh chan struct{}) {
+func (s *Server) publishJobSummaryMetrics(stopCh <-chan struct{}) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
@@ -1428,7 +1430,7 @@ func (s *Server) iterateJobSummaryMetrics(summary *structs.JobSummary) {
 }
 
 // publishJobStatusMetrics publishes the job statuses as metrics
-func (s *Server) publishJobStatusMetrics(stopCh chan struct{}) {
+func (s *Server) publishJobStatusMetrics(stopCh <-chan struct{}) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
@@ -1739,7 +1741,7 @@ func (s *Server) removeRaftPeer(m serf.Member, parts *serverParts) error {
 
 // replicateACLPolicies is used to replicate ACL policies from
 // the authoritative region to this region.
-func (s *Server) replicateACLPolicies(stopCh chan struct{}) {
+func (s *Server) replicateACLPolicies(stopCh <-chan struct{}) {
 	req := structs.ACLPolicyListRequest{
 		QueryOptions: structs.QueryOptions{
 			Region:     s.config.AuthoritativeRegion,
@@ -1776,7 +1778,7 @@ START:
 				args := &structs.ACLPolicyDeleteRequest{
 					Names: delete,
 				}
-				_, _, err := s.raftApply(structs.ACLPolicyDeleteRequestType, args)
+				_, _, err := s.apply(structs.ACLPolicyDeleteRequestType, args)
 				if err != nil {
 					s.logger.Error("failed to delete policies", "error", err)
 					goto ERR_WAIT
@@ -1811,7 +1813,7 @@ START:
 				args := &structs.ACLPolicyUpsertRequest{
 					Policies: fetched,
 				}
-				_, _, err := s.raftApply(structs.ACLPolicyUpsertRequestType, args)
+				_, _, err := s.apply(structs.ACLPolicyUpsertRequestType, args)
 				if err != nil {
 					s.logger.Error("failed to update policies", "error", err)
 					goto ERR_WAIT
@@ -1880,7 +1882,7 @@ func diffACLPolicies(state *state.StateStore, minIndex uint64, remoteList []*str
 
 // replicateACLTokens is used to replicate global ACL tokens from
 // the authoritative region to this region.
-func (s *Server) replicateACLTokens(stopCh chan struct{}) {
+func (s *Server) replicateACLTokens(stopCh <-chan struct{}) {
 	req := structs.ACLTokenListRequest{
 		GlobalOnly: true,
 		QueryOptions: structs.QueryOptions{
@@ -1918,7 +1920,7 @@ START:
 				args := &structs.ACLTokenDeleteRequest{
 					AccessorIDs: delete,
 				}
-				_, _, err := s.raftApply(structs.ACLTokenDeleteRequestType, args)
+				_, _, err := s.apply(structs.ACLTokenDeleteRequestType, args)
 				if err != nil {
 					s.logger.Error("failed to delete tokens", "error", err)
 					goto ERR_WAIT
@@ -1953,7 +1955,7 @@ START:
 				args := &structs.ACLTokenUpsertRequest{
 					Tokens: fetched,
 				}
-				_, _, err := s.raftApply(structs.ACLTokenUpsertRequestType, args)
+				_, _, err := s.apply(structs.ACLTokenUpsertRequestType, args)
 				if err != nil {
 					s.logger.Error("failed to update tokens", "error", err)
 					goto ERR_WAIT
@@ -2023,7 +2025,7 @@ func diffACLTokens(store *state.StateStore, minIndex uint64, remoteList []*struc
 // replicateACLRoles is used to replicate ACL Roles from the authoritative
 // region to this region. The loop should only be run on the leader within the
 // federated region.
-func (s *Server) replicateACLRoles(stopCh chan struct{}) {
+func (s *Server) replicateACLRoles(stopCh <-chan struct{}) {
 
 	// Generate our request object. We only need to do this once and reuse it
 	// for every RPC request. The MinQueryIndex is updated after every
@@ -2103,7 +2105,7 @@ func (s *Server) replicateACLRoles(stopCh chan struct{}) {
 			// If we have ACL roles to delete, make this call directly to Raft.
 			if len(toDelete) > 0 {
 				args := structs.ACLRolesDeleteByIDRequest{ACLRoleIDs: toDelete}
-				_, _, err := s.raftApply(structs.ACLRolesDeleteByIDRequestType, &args)
+				_, _, err := s.apply(structs.ACLRolesDeleteByIDRequestType, &args)
 
 				// If the error was because we lost leadership while calling
 				// Raft, avoid logging as this can be confusing to operators.
@@ -2157,7 +2159,7 @@ func (s *Server) replicateACLRoles(stopCh chan struct{}) {
 				}
 
 				// Perform the upsert directly via Raft.
-				_, _, err := s.raftApply(structs.ACLRolesUpsertRequestType, &args)
+				_, _, err := s.apply(structs.ACLRolesUpsertRequestType, &args)
 				if err != nil {
 					s.logger.Error("failed to update ACL roles", "error", err)
 					if s.replicationBackoffContinue(stopCh) {
@@ -2232,7 +2234,7 @@ func diffACLRoles(
 // replicateACLAuthMethods is used to replicate ACL Authentication Methods from
 // the authoritative region to this region. The loop should only be run on the
 // leader within the federated region.
-func (s *Server) replicateACLAuthMethods(stopCh chan struct{}) {
+func (s *Server) replicateACLAuthMethods(stopCh <-chan struct{}) {
 
 	// Generate our request object. We only need to do this once and reuse it
 	// for every RPC request. The MinQueryIndex is updated after every
@@ -2313,7 +2315,7 @@ func (s *Server) replicateACLAuthMethods(stopCh chan struct{}) {
 			// to Raft.
 			if len(toDelete) > 0 {
 				args := structs.ACLAuthMethodDeleteRequest{Names: toDelete}
-				_, _, err := s.raftApply(structs.ACLAuthMethodsDeleteRequestType, &args)
+				_, _, err := s.apply(structs.ACLAuthMethodsDeleteRequestType, &args)
 
 				// If the error was because we lost leadership while calling
 				// Raft, avoid logging as this can be confusing to operators.
@@ -2362,7 +2364,7 @@ func (s *Server) replicateACLAuthMethods(stopCh chan struct{}) {
 				}
 
 				// Perform the upsert directly via Raft.
-				_, _, err := s.raftApply(structs.ACLAuthMethodsUpsertRequestType, &args)
+				_, _, err := s.apply(structs.ACLAuthMethodsUpsertRequestType, &args)
 				if err != nil {
 					s.logger.Error("failed to update ACL auth-methods", "error", err)
 					if s.replicationBackoffContinue(stopCh) {
@@ -2438,7 +2440,7 @@ func diffACLAuthMethods(
 // replicateACLBindingRules is used to replicate ACL binding rules from the
 // authoritative region to this region. The loop should only be run on the
 // leader within the federated region.
-func (s *Server) replicateACLBindingRules(stopCh chan struct{}) {
+func (s *Server) replicateACLBindingRules(stopCh <-chan struct{}) {
 
 	// Generate our request object. We only need to do this once and reuse it
 	// for every RPC request. The MinQueryIndex is updated after every
@@ -2519,7 +2521,7 @@ func (s *Server) replicateACLBindingRules(stopCh chan struct{}) {
 			// to Raft.
 			if len(toDelete) > 0 {
 				args := structs.ACLBindingRulesDeleteRequest{ACLBindingRuleIDs: toDelete}
-				_, _, err := s.raftApply(structs.ACLBindingRulesDeleteRequestType, &args)
+				_, _, err := s.apply(structs.ACLBindingRulesDeleteRequestType, &args)
 
 				// If the error was because we lost leadership while calling
 				// Raft, avoid logging as this can be confusing to operators.
@@ -2569,7 +2571,7 @@ func (s *Server) replicateACLBindingRules(stopCh chan struct{}) {
 				}
 
 				// Perform the upsert directly via Raft.
-				_, _, err := s.raftApply(structs.ACLBindingRulesUpsertRequestType, &args)
+				_, _, err := s.apply(structs.ACLBindingRulesUpsertRequestType, &args)
 				if err != nil {
 					s.logger.Error("failed to update ACL binding rules", "error", err)
 					if s.replicationBackoffContinue(stopCh) {
@@ -2654,7 +2656,7 @@ func diffACLBindingRules(
 //		 } else {
 //	    return
 //	  }
-func (s *Server) replicationBackoffContinue(stopCh chan struct{}) bool {
+func (s *Server) replicationBackoffContinue(stopCh <-chan struct{}) bool {
 
 	timer, timerStopFn := helper.NewSafeTimer(s.config.ReplicationBackoff)
 	defer timerStopFn()
@@ -2686,7 +2688,7 @@ func (s *Server) getOrCreateAutopilotConfig() *structs.AutopilotConfig {
 
 	config = s.config.AutopilotConfig
 	req := structs.AutopilotSetConfigRequest{Config: *config}
-	if _, _, err = s.raftApply(structs.AutopilotRequestType, req); err != nil {
+	if _, _, err = s.apply(structs.AutopilotRequestType, req); err != nil {
 		s.logger.Named("autopilot").Error("failed to initialize config", "error", err)
 		return nil
 	}
@@ -2712,7 +2714,7 @@ func (s *Server) getOrCreateSchedulerConfig() *structs.SchedulerConfiguration {
 	}
 
 	req := structs.SchedulerSetConfigRequest{Config: s.config.DefaultSchedulerConfig}
-	if _, _, err = s.raftApply(structs.SchedulerConfigRequestType, req); err != nil {
+	if _, _, err = s.apply(structs.SchedulerConfigRequestType, req); err != nil {
 		s.logger.Named("core").Error("failed to initialize config", "error", err)
 		return nil
 	}
@@ -2772,7 +2774,7 @@ func (s *Server) initializeKeyring(stopCh <-chan struct{}) {
 		return
 	}
 
-	if _, _, err = s.raftApply(structs.RootKeyMetaUpsertRequestType,
+	if _, _, err = s.apply(structs.RootKeyMetaUpsertRequestType,
 		structs.KeyringUpdateRootKeyMetaRequest{
 			RootKeyMeta: rootKey.Meta,
 		}); err != nil {
@@ -2790,7 +2792,7 @@ func (s *Server) generateClusterMetadata() (structs.ClusterMetadata, error) {
 	}
 
 	newMeta := structs.ClusterMetadata{ClusterID: uuid.Generate(), CreateTime: time.Now().UnixNano()}
-	if _, _, err := s.raftApply(structs.ClusterMetadataRequestType, newMeta); err != nil {
+	if _, _, err := s.apply(structs.ClusterMetadataRequestType, newMeta); err != nil {
 		s.logger.Named("core").Error("failed to create cluster ID", "error", err)
 		return structs.ClusterMetadata{}, fmt.Errorf("failed to create cluster ID: %w", err)
 	}

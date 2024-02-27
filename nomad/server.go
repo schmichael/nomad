@@ -40,6 +40,7 @@ import (
 	"github.com/hashicorp/nomad/helper/pool"
 	"github.com/hashicorp/nomad/helper/tlsutil"
 	"github.com/hashicorp/nomad/lib/auth/oidc"
+	"github.com/hashicorp/nomad/nomad/applier"
 	"github.com/hashicorp/nomad/nomad/auth"
 	"github.com/hashicorp/nomad/nomad/deploymentwatcher"
 	"github.com/hashicorp/nomad/nomad/drainer"
@@ -117,6 +118,9 @@ type Server struct {
 	raftStore     *raftboltdb.BoltStore
 	raftInmem     *raft.InmemStore
 	raftTransport *raft.NetworkTransport
+
+	// applier appls mutations to raft or alternative backend
+	applier applier.Applier
 
 	// reassertLeaderCh is used to signal that the leader loop must
 	// re-establish leadership.
@@ -462,11 +466,41 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, consulConfigFunc
 		Encrypter:      s.encrypter,
 	})
 
-	// Initialize the Raft server
-	if err := s.setupRaft(); err != nil {
-		s.Shutdown()
-		s.logger.Error("failed to start Raft", "error", err)
-		return nil, fmt.Errorf("Failed to start Raft: %v", err)
+	// Create the FSM
+	fsmConfig := &FSMConfig{
+		EvalBroker:         s.evalBroker,
+		Periodic:           s.periodicDispatcher,
+		Blocked:            s.blockedEvals,
+		Logger:             s.logger,
+		Region:             s.Region(),
+		EnableEventBroker:  s.config.EnableEventBroker,
+		EventBufferSize:    s.config.EventBufferSize,
+		JobTrackedVersions: s.config.JobTrackedVersions,
+	}
+	s.fsm, err = NewFSM(fsmConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// HACK(schmichael)
+	if config.SingleServer {
+		localApplier := applier.NewLocalApplier(s.logger, config.DataDir, s.fsm)
+
+		// Must restore statestore manually without raft around
+		if err := localApplier.Restore(); err != nil {
+			return nil, err
+		}
+
+		s.applier = localApplier
+
+	} else {
+		// Initialize Raft
+		if err := s.setupRaft(fsmConfig); err != nil {
+			s.Shutdown()
+			s.logger.Error("failed to start Raft", "error", err)
+			return nil, fmt.Errorf("Failed to start Raft: %v", err)
+		}
+		s.applier = applier.NewRaftApplier(s.logger, s.raft)
 	}
 
 	// Initialize the wan Serf
@@ -515,11 +549,21 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, consulConfigFunc
 		return nil, err
 	}
 
-	// Monitor leadership changes
-	go s.monitorLeadership()
+	if s.raft == nil {
+		// HACK(schmichael) establish leadersihp for single server mode
+		go s.establishLeadership(s.shutdownCh)
+	} else {
+		// HACK(schmichael) raft only
 
-	// Start ingesting events for Serf
-	go s.serfEventHandler()
+		// Monitor leadership changes
+		go s.monitorLeadership()
+
+		// Start ingesting events for Serf
+		go s.serfEventHandler()
+
+		// Emit raft and state store metrics
+		go s.EmitRaftStats(10*time.Second, s.shutdownCh)
+	}
 
 	// start the RPC listener for the server
 	s.startRPCListener()
@@ -541,9 +585,6 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, consulConfigFunc
 
 	// Emit metrics
 	go s.heartbeatStats()
-
-	// Emit raft and state store metrics
-	go s.EmitRaftStats(10*time.Second, s.shutdownCh)
 
 	// Start enterprise background workers
 	s.startEnterpriseBackground()
@@ -1141,6 +1182,11 @@ func (s *Server) setupBootstrapHandler() error {
 // setupConsulSyncer creates Server-mode consul.Syncer which periodically
 // executes callbacks on a fixed interval.
 func (s *Server) setupConsulSyncer() error {
+	//TODO(schmichael) add validation to ensure server autojoin is disabled in single server mode
+	if s.config.SingleServer {
+		return nil
+	}
+
 	conf := s.config.GetDefaultConsul()
 	if conf.ServerAutoJoin != nil && *conf.ServerAutoJoin {
 		if err := s.setupBootstrapHandler(); err != nil {
@@ -1159,7 +1205,7 @@ func (s *Server) setupDeploymentWatcher() error {
 	// Create the raft shim type to restrict the set of raft methods that can be
 	// made
 	raftShim := &deploymentWatcherRaftShim{
-		apply: s.raftApply,
+		applier: s.applier,
 	}
 
 	// Create the deployment watcher
@@ -1362,7 +1408,7 @@ func (s *Server) setupRpcServer(server *rpc.Server, ctx *RPCContext) {
 }
 
 // setupRaft is used to setup and initialize Raft
-func (s *Server) setupRaft() error {
+func (s *Server) setupRaft(fsmConfig *FSMConfig) error {
 
 	// If we have an unclean exit then attempt to close the Raft store.
 	defer func() {
@@ -1372,23 +1418,6 @@ func (s *Server) setupRaft() error {
 			}
 		}
 	}()
-
-	// Create the FSM
-	fsmConfig := &FSMConfig{
-		EvalBroker:         s.evalBroker,
-		Periodic:           s.periodicDispatcher,
-		Blocked:            s.blockedEvals,
-		Logger:             s.logger,
-		Region:             s.Region(),
-		EnableEventBroker:  s.config.EnableEventBroker,
-		EventBufferSize:    s.config.EventBufferSize,
-		JobTrackedVersions: s.config.JobTrackedVersions,
-	}
-	var err error
-	s.fsm, err = NewFSM(fsmConfig)
-	if err != nil {
-		return err
-	}
 
 	// Create a transport layer
 	trans := raft.NewNetworkTransport(s.raftLayer, 3, s.config.RaftTimeout,
@@ -1543,6 +1572,7 @@ func (s *Server) setupRaft() error {
 	}
 
 	// Setup the Raft store
+	var err error
 	s.raft, err = raft.NewRaft(s.config.RaftConfig, s.fsm, log, stable, snap, trans)
 	if err != nil {
 		return err
@@ -1911,6 +1941,11 @@ func (s *Server) listenWorkerEvents() {
 // numPeers is used to check on the number of known peers, including the local
 // node.
 func (s *Server) numPeers() (int, error) {
+	// HACK(schmichael)
+	if s.config.SingleServer {
+		return 1, nil
+	}
+
 	future := s.raft.GetConfiguration()
 	if err := future.Error(); err != nil {
 		return 0, err
@@ -1921,6 +1956,11 @@ func (s *Server) numPeers() (int, error) {
 
 // IsLeader checks if this server is the cluster leader
 func (s *Server) IsLeader() bool {
+	// HACK(schmichael)
+	if s.config.SingleServer {
+		return true
+	}
+
 	return s.raft.State() == raft.Leader
 }
 
@@ -2033,19 +2073,22 @@ func (s *Server) Stats() map[string]map[string]string {
 	toString := func(v uint64) string {
 		return strconv.FormatUint(v, 10)
 	}
-	leader, _ := s.raft.LeaderWithID()
 	stats := map[string]map[string]string{
 		"nomad": {
 			"server":        "true",
 			"leader":        fmt.Sprintf("%v", s.IsLeader()),
-			"leader_addr":   string(leader),
+			"leader_addr":   s.clientRpcAdvertise.String(),
 			"bootstrap":     fmt.Sprintf("%v", s.isSingleServerCluster()),
 			"known_regions": toString(uint64(len(s.peers))),
 		},
-		"raft":    s.raft.Stats(),
-		"serf":    s.serf.Stats(),
 		"runtime": goruntime.RuntimeStats(),
 		"vault":   s.vault.Stats(),
+	}
+	if s.raft != nil {
+		leader, _ := s.raft.LeaderWithID()
+		stats["nomad"]["leader"] = string(leader)
+		stats["raft"] = s.raft.Stats()
+		stats["serf"] = s.serf.Stats()
 	}
 
 	return stats
@@ -2165,7 +2208,7 @@ func (s *Server) ClusterMetadata() (structs.ClusterMetadata, error) {
 }
 
 func (s *Server) isSingleServerCluster() bool {
-	return s.config.BootstrapExpect == 1
+	return s.config.SingleServer || s.config.BootstrapExpect == 1
 }
 
 func (s *Server) GetClientNodesCount() (int, error) {

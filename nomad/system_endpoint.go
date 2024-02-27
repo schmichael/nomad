@@ -72,7 +72,7 @@ func (s *System) ReconcileJobSummaries(args *structs.GenericRequest, reply *stru
 		return structs.ErrPermissionDenied
 	}
 
-	_, index, err := s.srv.raftApply(structs.ReconcileJobSummariesRequestType, args)
+	_, index, err := s.srv.apply(structs.ReconcileJobSummariesRequestType, args)
 	if err != nil {
 		return fmt.Errorf("reconciliation of job summaries failed: %v", err)
 	}

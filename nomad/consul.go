@@ -492,7 +492,7 @@ func (c *consulACLsAPI) ListTokens() ([]string, error) {
 func (s *Server) purgeSITokenAccessors(accessors []*structs.SITokenAccessor) error {
 	// Commit this update via Raft
 	request := structs.SITokenAccessorsRequest{Accessors: accessors}
-	_, _, err := s.raftApply(structs.ServiceIdentityAccessorDeregisterRequestType, request)
+	_, _, err := s.apply(structs.ServiceIdentityAccessorDeregisterRequestType, request)
 	return err
 }
 

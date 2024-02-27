@@ -476,6 +476,9 @@ type ServerConfig struct {
 	// by withholding peers until enough servers join.
 	BootstrapExpect int `hcl:"bootstrap_expect"`
 
+	// HACK(schmichael)
+	SingleServer bool `hcl:"single_server"`
+
 	// DataDir is the directory to store our state in
 	DataDir string `hcl:"data_dir"`
 
@@ -2001,6 +2004,9 @@ func (s *ServerConfig) Merge(b *ServerConfig) *ServerConfig {
 	}
 	if b.BootstrapExpect > 0 {
 		result.BootstrapExpect = b.BootstrapExpect
+	}
+	if b.SingleServer {
+		result.SingleServer = true
 	}
 	if b.DataDir != "" {
 		result.DataDir = b.DataDir
