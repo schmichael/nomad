@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/rpc"
 	"strings"
+	"sync"
 	"time"
 
 	metrics "github.com/armon/go-metrics"
@@ -29,6 +30,7 @@ import (
 	"github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/yamux"
+	"golang.org/x/net/quic"
 )
 
 const (
@@ -89,13 +91,31 @@ func newRpcHandler(s *Server) *rpcHandler {
 	return &r
 }
 
+type RPCSession interface {
+	//AcceptStream(context.Context) (io.ReadWriteCloser, error)
+	Open() (net.Conn, error)
+}
+
+type quicRPCSession struct {
+	conn *quic.Conn
+}
+
+func (s *quicRPCSession) Open() (net.Conn, error) {
+	c, err := s.conn.NewStream(context.TODO())
+	return c, err
+}
+
+func rpcSessionFromQUIC(c *quic.Conn) *quicRPCSession {
+	return &quicRPCSession{conn: c}
+}
+
 // RPCContext provides metadata about the RPC connection.
 type RPCContext struct {
 	// Conn exposes the raw connection.
 	Conn net.Conn
 
 	// Session exposes the multiplexed connection session.
-	Session *yamux.Session
+	Session RPCSession
 
 	// TLS marks whether the RPC is over a TLS based connection
 	TLS bool
@@ -106,6 +126,16 @@ type RPCContext struct {
 
 	// NodeID marks the NodeID that initiated the connection.
 	NodeID string
+}
+
+func rpcContextFromQUIC(conn *quic.Conn, stream *quic.Stream) *RPCContext {
+	return &RPCContext{
+		Conn:    conn,
+		Session: rpcSessionFromQUIC(conn),
+		TLS:     true,
+		//VerifiedChains: TODO(schmichael) need to set this somehow?
+		//NodeID: TODO(schmichael) need to set this somehow?
+	}
 }
 
 func (ctx *RPCContext) IsTLS() bool {
@@ -179,6 +209,60 @@ func (ctx *RPCContext) GetRemoteIP() (net.IP, error) {
 func (r *rpcHandler) listen(ctx context.Context) {
 	defer close(r.srv.listenerCh)
 
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		r.listenTCP(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		r.listenQUIC(ctx)
+	}()
+	wg.Wait()
+}
+
+func (r *rpcHandler) listenQUIC(ctx context.Context) {
+	var acceptLoopDelay time.Duration
+	for {
+		select {
+		case <-ctx.Done():
+			r.logger.Info("closing server RPC QUIC listener")
+			return
+		default:
+		}
+
+		// Accept a connection
+		conn, err := r.srv.rpcListener.Accept()
+		if err != nil {
+			if r.srv.shutdown {
+				return
+			}
+			r.handleAcceptErr(ctx, err, &acceptLoopDelay)
+			continue
+		}
+		// No error, reset loop delay
+		acceptLoopDelay = 0
+
+		// Apply per-connection limits (if enabled) *prior* to launching
+		// goroutine to block further Accept()s until limits are checked.
+		if r.connLimiter != nil {
+			free, err := r.connLimiter.Accept(conn)
+			if err != nil {
+				r.logger.Error("rejecting client for exceeding maximum RPC connections",
+					"remote_addr", conn.RemoteAddr(), "limit", r.connLimit)
+				conn.Close()
+				continue
+			}
+		}
+
+		go r.handleQUICConn(ctx, conn, &RPCContext{Conn: conn, TLS: true}, free)
+		metrics.IncrCounter([]string{"nomad", "rpc", "accept_quic_conn"}, 1)
+	}
+
+}
+
+func (r *rpcHandler) listenTCP(ctx context.Context) {
 	var acceptLoopDelay time.Duration
 	for {
 		select {
@@ -389,6 +473,108 @@ func (r *rpcHandler) handleConn(ctx context.Context, conn net.Conn, rpcCtx *RPCC
 	case pool.RpcMultiplexV2:
 		r.handleMultiplexV2(ctx, conn, rpcCtx)
 
+	default:
+		r.logger.Error("unrecognized RPC byte", "byte", buf[0])
+		conn.Close()
+		return
+	}
+}
+
+// handleQUICConn is used to determine if this is a Raft or
+// Nomad type RPC connection and invoke the correct handler
+//
+// **Cannot** use defer conn.Close in this method because the Raft handler uses
+// the conn beyond the scope of this func.
+func (r *rpcHandler) handleQUICConn(ctx context.Context, conn *quic.Conn, rpcCtx *RPCContext, free func()) {
+	defer func() {
+		conn.Close()
+		free()
+	}()
+
+	//TODO(schmichael) REMOVE
+	r.logger.Debug(">>> New QUIC Conn", "remote_addr", conn.RemoteAddr())
+
+	for i := 0; ; i++ {
+		select {
+		case <-ctx.Done():
+			r.logger.Info("closing server RPC QUIC connection")
+			return
+		default:
+		}
+
+		stream, err := conn.AcceptStream(ctx)
+		if err != nil {
+			//TODO(schmichael) Tweak
+			r.logger.Warn(">> error from quic AcceptStream", "error", err, "errT", fmt.Sprintf("%T", err),
+				"remote_addr", conn.RemoteAddr())
+			return
+		}
+
+		sid := fmt.Sprintf("%s-%0.6x", conn.RemoteAddr(), i)
+		rpcCtx := rpcContextFromQUIC(conn, stream)
+		go r.handleQUICStream(ctx, stream, sid, rpcCtx)
+	}
+}
+
+func (r *rpcHandler) handleQUICStream(ctx context.Context, stream *quic.Stream, sid string, rpcCtx *RPCContext) {
+	//TODO(schmichael) REMOVE
+	r.logger.Debug(">>> New QUIC Stream", "remote_addr", conn.RemoteAddr())
+
+	// Read magic byte
+	magic, err := stream.ReadByte()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			r.logger.Error("failed to read first RPC byte", "error", err, "stream", sid)
+		}
+		stream.Close()
+		return
+	}
+
+	// Switch on the byte
+	switch pool.RPCType(magic) {
+	case pool.RpcNomad:
+		// Create an RPC Server and handle the request
+		server := rpc.NewServer()
+		r.srv.setupRpcServer(server, rpcCtx)
+		r.handleNomadConn(ctx, conn, server)
+
+		// Remove any potential mapping between a NodeID to this connection and
+		// close the underlying connection.
+		r.srv.removeNodeConn(rpcCtx)
+
+	case pool.RpcRaft:
+		metrics.IncrCounter([]string{"nomad", "rpc", "raft_handoff"}, 1)
+		// Ensure that when TLS is configured, only certificates from `server.<region>.nomad` are accepted for Raft connections.
+		if err := r.validateRaftTLS(rpcCtx); err != nil {
+			conn.Close()
+			return
+		}
+		r.srv.raftLayer.Handoff(ctx, conn)
+
+	case pool.RpcStreaming:
+		// Apply a lower limit to streaming RPCs to avoid denial of
+		// service by repeatedly starting streaming RPCs.
+		//
+		// TODO Remove once MultiplexV2 is used.
+		if r.streamLimiter != nil {
+			free, err := r.streamLimiter.Accept(conn)
+			if err != nil {
+				r.logger.Error("rejecting client for exceeding maximum streaming RPC connections",
+					"remote_addr", conn.RemoteAddr(), "stream_limit", r.streamLimit)
+				conn.Close()
+				return
+			}
+			defer free()
+		}
+		r.handleStreamingConn(conn)
+
+	case pool.RpcMultiplexV2:
+		r.handleMultiplexV2(ctx, conn, rpcCtx)
+
+		//TODO(schmichael) this will never be used for quic connections
+		//case pool.RpcMultiplex:
+		//TODO(schmichael) quic always has tls
+		//case pool.RpcTLS:
 	default:
 		r.logger.Error("unrecognized RPC byte", "byte", buf[0])
 		conn.Close()

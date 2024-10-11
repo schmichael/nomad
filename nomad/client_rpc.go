@@ -14,13 +14,12 @@ import (
 	msgpackrpc "github.com/hashicorp/net-rpc-msgpackrpc/v2"
 	"github.com/hashicorp/nomad/helper/pool"
 	"github.com/hashicorp/nomad/nomad/structs"
-	"github.com/hashicorp/yamux"
 )
 
 // nodeConnState is used to track connection information about a Nomad Client.
 type nodeConnState struct {
 	// Session holds the multiplexed yamux Session for dialing back.
-	Session *yamux.Session
+	Session RPCSession
 
 	// Established is when the connection was established.
 	Established time.Time
@@ -251,7 +250,7 @@ func (s *Server) forwardClientRPC(method, nodeID string, args, reply any) error 
 
 // NodeRpc is used to make an RPC call to a node. The method takes the
 // Yamux session for the node and the method to be called.
-func NodeRpc(session *yamux.Session, method string, args, reply interface{}) error {
+func NodeRpc(session RPCSession, method string, args, reply interface{}) error {
 	// Open a new session
 	stream, err := session.Open()
 	if err != nil {
@@ -278,7 +277,7 @@ func NodeRpc(session *yamux.Session, method string, args, reply interface{}) err
 // takes the Yamux session for the node and the method to be called. It conducts
 // the initial handshake and returns a connection to be used or an error. It is
 // the callers responsibility to close the connection if there is no error.
-func NodeStreamingRpc(session *yamux.Session, method string) (net.Conn, error) {
+func NodeStreamingRpc(session RPCSession, method string) (net.Conn, error) {
 	// Open a new session
 	stream, err := session.Open()
 	if err != nil {

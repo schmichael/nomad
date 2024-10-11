@@ -30,6 +30,7 @@ import (
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/hashicorp/serf/serf"
 	"go.etcd.io/bbolt"
+	"golang.org/x/net/quic"
 
 	"github.com/hashicorp/nomad/command/agent/consul"
 	"github.com/hashicorp/nomad/helper"
@@ -133,8 +134,9 @@ type Server struct {
 	fsm *nomadFSM
 
 	// rpcListener is used to listen for incoming connections
-	rpcListener net.Listener
-	listenerCh  chan struct{}
+	rpcListener  net.Listener
+	quicListener *quic.Endpoint
+	listenerCh   chan struct{}
 
 	// tlsWrap is used to wrap outbound connections using TLS. It should be
 	// accessed using the lock.
@@ -452,6 +454,22 @@ func NewServer(config *Config, consulCatalog consul.CatalogAPI, consulConfigFunc
 		return nil, fmt.Errorf("Failed to start RPC layer: %v", err)
 	}
 
+	//TODO(schmichael) move into setupRPC and make configurable
+	if incomingTLS != nil {
+		quicConfig := &quic.Config{
+			//TODO(schmichael) Will this do our custom mtls auth?
+			TLSConfig:                incomingTLS,
+			RequireAddressValidation: true,
+			//StatelessResetKey: TODO(schmichael) set with serf key or something random + persistent
+			KeepAlivePeriod: 15 * time.Second,
+		}
+		s.quicListener, err = quic.Listen("udp", s.config.RPCAddr.String(), quicConfig)
+		if err != nil {
+			s.logger.Error("failed to initialize QUIC listener", "error", err)
+			return nil, err
+		}
+	}
+
 	s.auth = auth.NewAuthenticator(&auth.AuthenticatorConfig{
 		StateFn:        s.State,
 		Logger:         s.logger,
@@ -573,7 +591,7 @@ func (s *Server) createRPCListener() (*net.TCPListener, error) {
 	listener, err := net.ListenTCP("tcp", s.config.RPCAddr)
 	if err != nil {
 		s.logger.Error("failed to initialize TLS listener", "error", err)
-		return listener, err
+		return nil, err
 	}
 
 	s.rpcListener = listener
@@ -1236,7 +1254,6 @@ func (s *Server) setupRPC(tlsWrap tlsutil.RegionWrapper) error {
 
 	listener, err := s.createRPCListener()
 	if err != nil {
-		listener.Close()
 		return err
 	}
 
