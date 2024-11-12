@@ -929,6 +929,9 @@ type JobDispatchRequest struct {
 	Meta    map[string]string
 	WriteRequest
 	IdPrefixTemplate string
+
+	//HACK(schmichael) lol
+	WaitForResult bool
 }
 
 // JobValidateRequest is used to validate a job
@@ -1643,7 +1646,15 @@ type JobDispatchResponse struct {
 	EvalID          string
 	EvalCreateIndex uint64
 	JobCreateIndex  uint64
+	Result          *JobDispatchResponseResult
+
 	WriteMeta
+}
+
+type JobDispatchResponseResult struct {
+	Error    string // error *after* job is dispatched but *before* a result
+	ExitCode int    // the exit code of the main task or first nonzero task
+	Payload  []byte // the result of the job
 }
 
 // JobListResponse is used for a list request
