@@ -582,11 +582,16 @@ type Node struct {
 }
 
 type NodeResources struct {
-	Cpu      NodeCpuResources
-	Memory   NodeMemoryResources
-	Disk     NodeDiskResources
-	Networks []*NetworkResource
-	Devices  []*NodeDeviceResource
+	// Deprecated: use Processors instead.
+	Cpu NodeCpuResources
+
+	Processors NodeProcessorResources
+	Memory     NodeMemoryResources
+	Disk       NodeDiskResources
+	Networks   []*NetworkResource
+	Devices    []*NodeDeviceResource
+
+	NodeNetworks []*NodeNetworkResource
 
 	MinDynamicPort int
 	MaxDynamicPort int
@@ -598,12 +603,55 @@ type NodeCpuResources struct {
 	ReservableCpuCores []uint16
 }
 
+type NodeProcessorResources struct {
+	Topology *NodeProcessorTopology
+}
+
+type NodeProcessorTopology struct {
+	Nodes     []uint8
+	Distances [][]uint8
+	Cores     []NodeProcessorCore
+
+	BusAssociativity map[string]uint8
+
+	OverrideTotalCompute   uint64
+	OverrideWitholdCompute uint64
+}
+
+type NodeProcessorCore struct {
+	SocketID uint8
+	NodeID   uint8
+	ID       uint16
+	Grade    bool
+	Disable  bool
+
+	BaseSpeed  uint64
+	MaxSpeed   uint64
+	GuessSpeed uint64
+}
+
 type NodeMemoryResources struct {
 	MemoryMB int64
 }
 
 type NodeDiskResources struct {
 	DiskMB int64
+}
+
+type NodeNetworkResource struct {
+	Mode       string
+	Device     string
+	MacAddress string
+	Speed      int
+	Addresses  []NodeNetworkAddress
+}
+
+type NodeNetworkAddress struct {
+	Family        string
+	Alias         string
+	Address       string
+	ReservedPorts string
+	Gateway       string
 }
 
 type NodeReservedResources struct {

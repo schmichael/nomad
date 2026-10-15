@@ -4,7 +4,10 @@
 package command
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +16,8 @@ import (
 	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/ci"
 	"github.com/hashicorp/nomad/command/agent"
+	"github.com/hashicorp/nomad/nomad/mock"
+	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/testutil"
 	"github.com/posener/complete"
 	"github.com/shoenig/test/must"
@@ -237,6 +242,50 @@ func TestNodeStatusCommand_Fails(t *testing.T) {
 	if out := ui.ErrorWriter.String(); !strings.Contains(out, "-quiet cannot be used with -verbose or -json") {
 		t.Fatalf("expected getting formatter error, got: %s", out)
 	}
+}
+
+func TestNodeStatusCommand_ProcessorTopology(t *testing.T) {
+	ci.Parallel(t)
+
+	node := mock.Node()
+	topology := structs.MockWorkstationTopology()
+	topology.OverrideTotalCompute = 100_000
+	topology.OverrideWitholdCompute = 500
+	topology.Cores[1].Grade = false
+	topology.Cores[1].Disable = true
+	topology.Cores[1].MaxSpeed = 4000
+	topology.Cores[1].GuessSpeed = 2500
+	node.NodeResources.Processors.Topology = topology
+	topologyJSON, err := json.Marshal(node.NodeResources.Processors.Topology)
+	must.NoError(t, err)
+	var expected map[string]any
+	must.NoError(t, json.Unmarshal(topologyJSON, &expected))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/nodes":
+			_ = json.NewEncoder(w).Encode([]*structs.NodeListStub{{ID: node.ID}})
+		case "/v1/node/" + node.ID:
+			_ = json.NewEncoder(w).Encode(node)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	ui := cli.NewMockUi()
+	cmd := &NodeStatusCommand{Meta: Meta{Ui: ui}}
+	must.Zero(t, cmd.Run([]string{"-address=" + srv.URL, "-json", node.ID}), must.Sprint(ui.ErrorWriter.String()))
+
+	var output struct {
+		NodeResources struct {
+			Processors struct {
+				Topology map[string]any
+			}
+		}
+	}
+	must.NoError(t, json.Unmarshal(ui.OutputWriter.Bytes(), &output))
+	must.Eq(t, expected, output.NodeResources.Processors.Topology)
 }
 
 func TestNodeStatusCommand_AutocompleteArgs(t *testing.T) {

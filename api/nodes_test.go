@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"testing"
@@ -111,6 +112,8 @@ func TestNodes_List_Resources(t *testing.T) {
 	out, _, err := nodes.List(qo)
 	must.NoError(t, err)
 	must.NotNil(t, out[0].NodeResources)
+	must.NotNil(t, out[0].NodeResources.Processors.Topology)
+	must.NotEq(t, 0, len(out[0].NodeResources.Processors.Topology.Cores))
 	must.NotNil(t, out[0].ReservedResources)
 }
 
@@ -145,12 +148,87 @@ func TestNodes_Info(t *testing.T) {
 
 	must.Eq(t, 20000, result.NodeResources.MinDynamicPort)
 	must.Eq(t, 32000, result.NodeResources.MaxDynamicPort)
+	must.NotNil(t, result.NodeResources.Processors.Topology)
+	must.NotEq(t, 0, len(result.NodeResources.Processors.Topology.Cores))
 
 	// Check that the StatusUpdatedAt field is being populated correctly
 	must.Less(t, result.StatusUpdatedAt, startTime)
 
 	// check we have at least one event
 	must.GreaterEq(t, 1, len(result.Events))
+}
+
+func TestNodeResources_JSON(t *testing.T) {
+	testutil.Parallel(t)
+
+	for _, tc := range []struct {
+		name     string
+		input    string
+		expected NodeResources
+	}{
+		{
+			name: "topology",
+			input: `{
+				"Processors": {"Topology": {
+					"Nodes": "AAE=",
+					"Distances": ["ChQ=", "FAo="],
+					"Cores": [
+						{"SocketID": 0, "NodeID": 0, "ID": 0, "Grade": true, "Disable": false, "BaseSpeed": 3000, "MaxSpeed": 4000, "GuessSpeed": 2500},
+						{"SocketID": 1, "NodeID": 1, "ID": 256, "Grade": false, "Disable": true, "BaseSpeed": 1500, "MaxSpeed": 2000, "GuessSpeed": 1000}
+					],
+					"BusAssociativity": {"0000:03:00.0": 1},
+					"OverrideTotalCompute": 6000,
+					"OverrideWitholdCompute": 500
+				}},
+				"NodeNetworks": [{
+					"Mode": "host", "Device": "eth0", "MacAddress": "00:11:22:33:44:55", "Speed": 1000,
+					"Addresses": [{"Family": "ipv4", "Alias": "default", "Address": "192.0.2.10", "ReservedPorts": "22", "Gateway": "192.0.2.1"}]
+				}]
+			}`,
+			expected: NodeResources{
+				Processors: NodeProcessorResources{Topology: &NodeProcessorTopology{
+					Nodes:     []uint8{0, 1},
+					Distances: [][]uint8{{10, 20}, {20, 10}},
+					Cores: []NodeProcessorCore{
+						{SocketID: 0, NodeID: 0, ID: 0, Grade: true, BaseSpeed: 3000, MaxSpeed: 4000, GuessSpeed: 2500},
+						{SocketID: 1, NodeID: 1, ID: 256, Grade: false, Disable: true, BaseSpeed: 1500, MaxSpeed: 2000, GuessSpeed: 1000},
+					},
+					BusAssociativity:       map[string]uint8{"0000:03:00.0": 1},
+					OverrideTotalCompute:   6000,
+					OverrideWitholdCompute: 500,
+				}},
+				NodeNetworks: []*NodeNetworkResource{{
+					Mode: "host", Device: "eth0", MacAddress: "00:11:22:33:44:55", Speed: 1000,
+					Addresses: []NodeNetworkAddress{{
+						Family: "ipv4", Alias: "default", Address: "192.0.2.10", ReservedPorts: "22", Gateway: "192.0.2.1",
+					}},
+				}},
+			},
+		},
+		{
+			name:  "legacy CPU resources",
+			input: `{"Cpu":{"CpuShares":6000,"TotalCpuCores":2,"ReservableCpuCores":[0,1]}}`,
+			expected: NodeResources{Cpu: NodeCpuResources{
+				CpuShares: 6000, TotalCpuCores: 2, ReservableCpuCores: []uint16{0, 1},
+			}},
+		},
+		{
+			name:  "null topology",
+			input: `{"Processors":{"Topology":null}}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var resources NodeResources
+			must.NoError(t, json.Unmarshal([]byte(tc.input), &resources))
+			must.Eq(t, tc.expected, resources)
+
+			encoded, err := json.Marshal(resources)
+			must.NoError(t, err)
+			var decoded NodeResources
+			must.NoError(t, json.Unmarshal(encoded, &decoded))
+			must.Eq(t, resources, decoded)
+		})
+	}
 }
 
 func TestNode_Stats(t *testing.T) {
